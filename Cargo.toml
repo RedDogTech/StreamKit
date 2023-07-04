@@ -13,3 +13,9 @@ toml = "0.7.3"
 clap = { version = "4.2.1", features = ["derive", "env"] }
 serde = { version = "1.0.160", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+prometheus = { version = "0.13.3", features = ["process"] }
+lazy_static = "1.4.0"
+
+# Internal Packages
+
+srt-rs = { path = "vendors/srt-rs", version = "0.1.0" }
