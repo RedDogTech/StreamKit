@@ -19,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let version = srt_rs::version();
 
     log::info!("Using srt Version: {}.{}.{}", version.0, version.1, version.2);
+    srt_rs::startup()?;
 
     Ok(())
 }
