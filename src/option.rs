@@ -67,6 +67,8 @@ impl FromStr for LogLevel {
 
 
 const STREAMKIT_LOG_LEVEL: &str = "STREAMKIT_LOG_LEVEL";
+const STREAMKIT_ENABLE_METRICS: &str = "STREAMKIT_ENABLE_METRICS";
+
 const DEFAULT_CONFIG_FILE_PATH: &str = "./config.toml";
 
 #[derive(Debug, Clone, Parser, Deserialize)]
@@ -79,6 +81,13 @@ pub struct Opt {
     #[clap(long, env = STREAMKIT_LOG_LEVEL, default_value_t)]
     #[serde(default)]
     pub log_level: LogLevel,
+
+    /// Experimental metrics feature.
+    ///
+    /// Enables the Prometheus metrics on the `GET /metrics` endpoint.
+    #[clap(long, env = STREAMKIT_ENABLE_METRICS)]
+    #[serde(default)]
+    pub enable_metrics: bool,
 
     /// Set the path to a configuration file that should be used to setup the engine.
     /// Format must be TOML.
@@ -134,10 +143,12 @@ impl Opt {
     fn export_to_env(self) {
         let Opt {
             log_level,
+            enable_metrics: enable_metrics_route,
             config_file_path: _,
         } = self;
 
         export_to_env_if_not_present(STREAMKIT_LOG_LEVEL, log_level.to_string());
+        export_to_env_if_not_present(STREAMKIT_ENABLE_METRICS,enable_metrics_route.to_string());
     }
 }
 
