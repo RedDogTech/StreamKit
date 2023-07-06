@@ -20,4 +20,16 @@ extern "C" {
     /// Cleans up global SRT resources before exiting an application
     /// 
     pub fn srt_cleanup() -> int;
+
+    ///
+    /// Creates an SRT socket.
+    /// 
+    pub fn srt_create_socket() -> SRTSOCKET;
+
+    ///
+    /// Closes the socket or group and frees all used resources.
+    /// Note that underlying UDP sockets may be shared between sockets,
+    /// so these are freed only with the last user closed.
+    /// 
+    pub fn srt_close(srt_socket: SRTSOCKET) -> int;
 }

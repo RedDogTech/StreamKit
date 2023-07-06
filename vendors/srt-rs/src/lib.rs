@@ -38,19 +38,22 @@ pub fn shutdown() -> Result<()> {
     Ok(())
 }
 
-struct SrtServer {
-
+pub struct SrtServer {
+    socket_id: i32,
 }
 
 impl SrtServer {
     pub fn builder() -> SrtBuilder {
         SrtBuilder::default()
     }
+
+    pub fn close(&self) {
+        unsafe { libsrt_sys::srt_close(self.socket_id) };
+    }
 }
 
 #[derive(Default)]
-struct SrtBuilder {
-
+pub struct SrtBuilder {
 }
 
 impl SrtBuilder {
@@ -58,6 +61,14 @@ impl SrtBuilder {
 
         SrtBuilder {
             
+        }
+    }
+
+    pub fn build(self) -> SrtServer {
+        let socket_id = unsafe { libsrt_sys::srt_create_socket() };
+
+        SrtServer {
+            socket_id
         }
     }
 }

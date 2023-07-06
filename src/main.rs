@@ -1,7 +1,7 @@
 use log;
 use stream_kit::Opt;
 
-use srt_rs;
+use srt_rs::{SrtBuilder, SrtServer};
 
 fn setup(opt: &Opt) -> anyhow::Result<()> {
     let mut log_builder = env_logger::Builder::new();
@@ -20,6 +20,8 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("Using srt Version: {}.{}.{}", version.0, version.1, version.2);
     srt_rs::startup()?;
+
+    let server: SrtServer = SrtBuilder::new().build();
 
     Ok(())
 }
