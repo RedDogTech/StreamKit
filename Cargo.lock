@@ -624,7 +624,10 @@ name = "srt-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
  "libsrt-sys",
+ "log",
+ "thiserror",
 ]
 
 [[package]]

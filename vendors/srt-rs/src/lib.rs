@@ -1,6 +1,10 @@
 use anyhow::{Result, bail};
 use libsrt_sys;
 
+pub mod log;
+pub mod epoll;
+pub mod socket;
+pub mod error;
 
 pub fn version() -> (i32, i32, i32) {
     let version = unsafe { 
