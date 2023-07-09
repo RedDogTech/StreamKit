@@ -24,6 +24,18 @@ pub mod log {
                 Level::Debug => 7,
             }
         }
+
+        fn from_cint(level: int) -> Level {
+            match level {
+                2 => Level::Crit,
+                3 => Level::Err,
+                4 => Level::Warning,
+                5 => Level::Notice ,
+                6 => Level::Info,
+                7 => Level::Debug,
+                _ => unreachable!()
+            }
+        }
     }
 
     pub fn set_level(level: Level) {
@@ -34,11 +46,11 @@ pub mod log {
                 
                 unsafe {
                     let msg = ffi::CString::new(ffi::CStr::from_ptr(message).to_bytes()).unwrap();
-                    match level {
-                        7 => log::debug!("{:?}", msg),
-                        6 => log::info!("{:?}", msg),
-                        4 => log::warn!("{:?}", msg),
-                        3 => log::error!("{:?}", msg),
+                    match Level::from_cint(level) {
+                        Level::Debug => log::debug!("{:?}", msg),
+                        Level::Info  => log::info!("{:?}", msg),
+                        Level::Warning | Level::Notice => log::warn!("{:?}", msg),
+                        Level::Err | Level::Crit => log::error!("{:?}", msg),
                         _ => log::info!("{:?}", msg),
                     }
                 }
