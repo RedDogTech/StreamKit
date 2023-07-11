@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use libsrt_sys;
 
 pub mod log;
@@ -19,60 +19,15 @@ pub fn version() -> (i32, i32, i32) {
 }
 
 pub fn startup() -> Result<()> {
-    let result = unsafe { 
-        libsrt_sys::srt_startup()
-    };
-
-    if result > 1 {
-        bail!("Failed to start srt instance")
-    } 
-    
-    Ok(())
-}
-
-pub fn shutdown() -> Result<()> {
-    let result = unsafe { 
-        libsrt_sys::srt_cleanup()
-    };
-    
-    if result > 1 {
-        bail!("Failed to cleanup srt")
-    } 
-    
-    Ok(())
-}
-
-pub struct SrtServer {
-    socket_id: i32,
-}
-
-impl SrtServer {
-    pub fn builder() -> SrtBuilder {
-        SrtBuilder::default()
-    }
-
-    pub fn close(&self) {
-        unsafe { libsrt_sys::srt_close(self.socket_id) };
+    let result = unsafe { libsrt_sys::srt_startup() };
+    if result == 1 {
+        Ok(())
+    } else {
+        error::handle_result((), result)
     }
 }
 
-#[derive(Default)]
-pub struct SrtBuilder {
-}
-
-impl SrtBuilder {
-    pub fn new() -> SrtBuilder {
-
-        SrtBuilder {
-            
-        }
-    }
-
-    pub fn build(self) -> SrtServer {
-        let socket_id = unsafe { libsrt_sys::srt_create_socket() };
-
-        SrtServer {
-            socket_id
-        }
-    }
+pub fn cleanup() -> Result<()> {
+    let result = unsafe { libsrt_sys::srt_cleanup() };
+    error::handle_result((), result)
 }
