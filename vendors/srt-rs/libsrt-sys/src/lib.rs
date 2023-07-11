@@ -224,6 +224,10 @@ extern "C" {
     /// 
     pub fn srt_close(srt_socket: SRTSOCKET) -> int;
 
+    pub fn srt_bind(u: SRTSOCKET, name: *const sockaddr, namelen: int) -> int;
+
+    pub fn srt_listen(u: SRTSOCKET, backlog: int) -> int;
+
     ///
     /// Sets the minimum severity for logging. A particular log entry
     /// is displayed only if it has a severity greater than or equal 
