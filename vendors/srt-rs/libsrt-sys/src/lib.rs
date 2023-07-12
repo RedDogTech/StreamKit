@@ -6,6 +6,15 @@ use std::{convert::TryFrom};
 pub type SRTSOCKET = int;
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SRT_SOCKOPT {
+    SRTO_SNDSYN = 1,
+    SRTO_RCVSYN = 2,
+    SRTO_STREAMID = 46
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub enum SRT_EPOLL_OPT {
     SRT_EPOLL_OPT_NONE = 0x0, // fallback
 
@@ -181,7 +190,7 @@ impl TryFrom<i32> for SRT_ERRNO {
 #[derive(Clone)]
 pub struct SRT_EPOLL_EVENT {
     pub fd: SRTSOCKET,
-    pub events: int,
+    pub events: SRT_EPOLL_OPT,
 }
 
 pub type SRT_LOG_HANDLER_FN = Option<
@@ -194,6 +203,50 @@ pub type SRT_LOG_HANDLER_FN = Option<
         message: *const char,
     ),
 >;
+
+pub const SRT_SOCKSTATUS_SRTS_INIT: SRT_SOCKSTATUS = 1;
+pub const SRT_SOCKSTATUS_SRTS_OPENED: SRT_SOCKSTATUS = 2;
+pub const SRT_SOCKSTATUS_SRTS_LISTENING: SRT_SOCKSTATUS = 3;
+pub const SRT_SOCKSTATUS_SRTS_CONNECTING: SRT_SOCKSTATUS = 4;
+pub const SRT_SOCKSTATUS_SRTS_CONNECTED: SRT_SOCKSTATUS = 5;
+pub const SRT_SOCKSTATUS_SRTS_BROKEN: SRT_SOCKSTATUS = 6;
+pub const SRT_SOCKSTATUS_SRTS_CLOSING: SRT_SOCKSTATUS = 7;
+pub const SRT_SOCKSTATUS_SRTS_CLOSED: SRT_SOCKSTATUS = 8;
+pub const SRT_SOCKSTATUS_SRTS_NONEXIST: SRT_SOCKSTATUS = 9;
+pub type SRT_SOCKSTATUS = int;
+
+pub const SRT_MemberStatus_SRT_GST_PENDING: SRT_MemberStatus = 0;
+pub const SRT_MemberStatus_SRT_GST_IDLE: SRT_MemberStatus = 1;
+pub const SRT_MemberStatus_SRT_GST_RUNNING: SRT_MemberStatus = 2;
+pub const SRT_MemberStatus_SRT_GST_BROKEN: SRT_MemberStatus = 3;
+pub type SRT_MemberStatus = int;
+pub use self::SRT_MemberStatus as SRT_MEMBERSTATUS;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SRT_SOCKGROUPDATA {
+    pub id: SRTSOCKET,
+    pub peeraddr: sockaddr_storage,
+    pub sockstate: SRT_SOCKSTATUS,
+    pub weight: u16,
+    pub memberstate: SRT_MEMBERSTATUS,
+    pub result: int,
+    pub token: int,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct SRT_MSGCTRL {
+    pub flags: int,
+    pub msgttl: int,
+    pub inorder: int,
+    pub boundary: int,
+    pub srctime: i64,
+    pub pktseq: i32,
+    pub msgno: i32,
+    pub grpdata: *mut SRT_SOCKGROUPDATA,
+    pub grpdata_size: usize,
+}
 
 #[link(name = "srt")]
 extern "C" {
@@ -227,6 +280,18 @@ extern "C" {
     pub fn srt_bind(u: SRTSOCKET, name: *const sockaddr, namelen: int) -> int;
 
     pub fn srt_listen(u: SRTSOCKET, backlog: int) -> int;
+
+    pub fn srt_accept(u: SRTSOCKET, addr: *mut sockaddr, addrlen: *mut int) -> SRTSOCKET;
+
+    pub fn srt_recv(souck: SRTSOCKET, buf: *mut char, len: int) -> int;
+
+    pub fn srt_recvmsg2(u: SRTSOCKET, buf: *mut char, len: int, mctrl: *mut SRT_MSGCTRL) -> int;
+
+    pub fn srt_getsockflag(u: SRTSOCKET, opt: SRT_SOCKOPT, optval: *mut void, optlen: *mut int) -> int;
+
+    pub fn srt_setsockflag(u: SRTSOCKET, opt: SRT_SOCKOPT, optval: *const void, optlen: int) -> int;
+
+    pub fn srt_getsockname(u: SRTSOCKET, name: *mut sockaddr, namelen: *mut int) -> int;
 
     ///
     /// Sets the minimum severity for logging. A particular log entry
