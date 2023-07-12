@@ -51,7 +51,6 @@ pub mod log {
                         Level::Info  => log::info!("{:?}", msg),
                         Level::Warning | Level::Notice => log::warn!("{:?}", msg),
                         Level::Err | Level::Crit => log::error!("{:?}", msg),
-                        _ => log::info!("{:?}", msg),
                     }
                 }
 

@@ -1,8 +1,5 @@
-use std::io::Read;
-
 use stream_kit::Opt;
-
-use srt_rs::{log as srt_log};
+use srt_rs::log as srt_log;
 
 fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
     let mut log_builder = env_logger::Builder::new();
@@ -33,13 +30,11 @@ async fn main() -> anyhow::Result<()> {
     log::debug!("srt server running srt://127.0.0.1:4532?streamid=1234");
 
     loop {
-        let (mut peer, peer_addr) = test.accept().await?;
+        let (peer, peer_addr) = test.accept().await?;
 
         tokio::spawn(async move {
             log::debug!("stream id {:?}", peer.get_stream_id());
             log::debug!("new connection from {:?}", peer_addr);
-
-            
 
             loop {
                 let mut buf = [0; 1316];
@@ -47,11 +42,6 @@ async fn main() -> anyhow::Result<()> {
                 
                 println!("got {:?}", buf.len());
             }
-
-            
-
         });
-
-        
     };
 }
