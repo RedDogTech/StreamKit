@@ -1,5 +1,4 @@
-use std::{error::Error, fmt::{Display, Formatter, self}};
-//use thiserror::Error;
+use std::{error::Error, fmt::{Display, Formatter, self}, io::{self, ErrorKind}};
 use anyhow::Result;
 use libc::c_int;
 use libsrt_sys;
@@ -116,6 +115,57 @@ fn error_msg(err: &SrtError) -> String {
     }
 }
 
+impl From<SrtError> for io::Error {
+    fn from(e: SrtError) -> Self {
+        io::Error::new(
+            match e {
+                SrtError::Unknown => ErrorKind::Other,
+                SrtError::Success => ErrorKind::Other,
+                SrtError::ConnSetup => ErrorKind::ConnectionRefused,
+                SrtError::NoServer => ErrorKind::ConnectionRefused,
+                SrtError::ConnRej(_) => ErrorKind::ConnectionRefused,
+                SrtError::SockFail => ErrorKind::AddrNotAvailable,
+                SrtError::SecFail => ErrorKind::ConnectionRefused,
+                SrtError::ConnFail => ErrorKind::ConnectionRefused,
+                SrtError::Closed => ErrorKind::AddrNotAvailable,
+                SrtError::ConnLost => ErrorKind::ConnectionAborted,
+                SrtError::NoConn => ErrorKind::NotConnected,
+                SrtError::Resource => ErrorKind::Other,
+                SrtError::Thread => ErrorKind::Other,
+                SrtError::NoBuf => ErrorKind::Other,
+                SrtError::SysObj => ErrorKind::Other,
+                SrtError::File => ErrorKind::NotFound,
+                SrtError::InvRdOff => ErrorKind::InvalidInput,
+                SrtError::RdPerm => ErrorKind::PermissionDenied,
+                SrtError::InvWrOff => ErrorKind::InvalidInput,
+                SrtError::WrPerm => ErrorKind::PermissionDenied,
+                SrtError::InvOp => ErrorKind::InvalidInput,
+                SrtError::BoundSock => ErrorKind::AddrInUse,
+                SrtError::ConnSock => ErrorKind::AddrInUse,
+                SrtError::InvParam => ErrorKind::InvalidInput,
+                SrtError::InvSock => ErrorKind::AddrNotAvailable,
+                SrtError::UnboundSock => ErrorKind::NotConnected,
+                SrtError::NoListen => ErrorKind::InvalidInput,
+                SrtError::RdvNoServ => ErrorKind::ConnectionRefused,
+                SrtError::RdvUnbound => ErrorKind::ConnectionRefused,
+                SrtError::InvalMsgApi => ErrorKind::InvalidInput,
+                SrtError::InvalBufferApi => ErrorKind::InvalidInput,
+                SrtError::DupListen => ErrorKind::AddrInUse,
+                SrtError::LargeMsg => ErrorKind::Other,
+                SrtError::InvPollId => ErrorKind::AddrNotAvailable,
+                SrtError::PollEmpty => ErrorKind::Other,
+                SrtError::AsyncFail => ErrorKind::WouldBlock,
+                SrtError::AsyncSnd => ErrorKind::WouldBlock,
+                SrtError::AsyncRcv => ErrorKind::WouldBlock,
+                SrtError::Timeout => ErrorKind::TimedOut,
+                SrtError::Congest => ErrorKind::Other,
+                SrtError::PeerErr => ErrorKind::Other,
+            },
+            e,
+        )
+    }
+}
+
 impl From<libsrt_sys::SRT_ERRNO> for SrtError {
     fn from(err_no: libsrt_sys::SRT_ERRNO) -> Self {
         match err_no {
@@ -173,7 +223,7 @@ impl Display for SrtError {
     }
 }
 
-pub fn handle_result<T>(ok: T, return_code: i32) -> Result<T, anyhow::Error> {
+pub fn handle_result<T>(ok: T, return_code: i32) -> Result<T, SrtError> {
     match return_code {
         0 => Ok(ok),
         -1 => Err(get_last_error().into()),
