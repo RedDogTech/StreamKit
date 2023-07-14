@@ -1,4 +1,3 @@
-
 pub mod log {
     use std::ffi;
     use libc::{c_char as char, c_int as int, c_void as void};
