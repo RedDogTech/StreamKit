@@ -8,11 +8,8 @@ pub fn create_app() -> Router {
         .route("/:id/init", get(init))
 }
 
-async fn playlist(
-    Path(_id): Path<String>,
-) -> impl IntoResponse {
+async fn playlist(Path(_id): Path<String>) -> impl IntoResponse {
     
-
     let headers = AppendHeaders([
         (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
         (header::CACHE_CONTROL, "max-age=0"),
@@ -20,25 +17,17 @@ async fn playlist(
     ]);
     
     (headers, StatusCode::NOT_FOUND)
-
-    //Html("Hello, World!")
 }
 
 
-async fn segment(
-    Path(_id): Path<String>,
-) -> impl IntoResponse {
+async fn segment(Path(_id): Path<String>) -> impl IntoResponse {
     Html("Hello, World!")
 }
 
-async fn part(
-    Path(_id): Path<String>,
-) -> impl IntoResponse {
+async fn part(Path(_id): Path<String>) -> impl IntoResponse {
     Html("Hello, World!")
 }
 
-async fn init(
-    Path(id_id): Path<String>,
-) -> impl IntoResponse {
+async fn init(Path(_id): Path<String>) -> impl IntoResponse {
     Html("Hello, World!")
 }

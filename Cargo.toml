@@ -17,6 +17,10 @@ tokio = { version = "1", features = ["full"] }
 prometheus = { version = "0.13.3", features = ["process"] }
 lazy_static = "1.4.0"
 
+# Media Deps
+mpeg2ts-reader = "0.15.0"
+scte35-reader = "0.14.0"
+
 # Internal Packages
 
 srt-rs = { path = "vendors/srt-rs", version = "0.1.0" }

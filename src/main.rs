@@ -1,4 +1,4 @@
-use stream_kit::Opt;
+use stream_kit::{Opt, store};
 use srt_rs::log as srt_log;
 use log::LevelFilter;
 use stream_kit::routes;
@@ -35,21 +35,12 @@ async fn run_http() -> anyhow::Result<()> {
         .map_err(anyhow::Error::from)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let (opt, _) = Opt::try_build()?;
-
-    setup_logging(&opt)?;
-    setup_srt(&opt)?;
-
+async fn run_srt() -> anyhow::Result<()> {
     let test = srt_rs::builder().listen("127.0.0.1:9000", 1)?;
 
-    log::info!("waiting for connection...");
-    log::debug!("srt server running srt://127.0.0.1:4532?streamid=1234");
-
-    run_http().await?;
-
     loop {
+        log::info!("waiting for connection...");
+        log::debug!("srt server running srt://127.0.0.1:9000?streamid=1234");    
         let (peer, peer_addr) = test.accept().await?;
 
         tokio::spawn(async move {
@@ -63,15 +54,33 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            let store = store::Store::new();
+            let (mut ctx, mut demux) = stream_kit::mpegts::create_demux(store.clone());
+
             let mut buf = [0; 1316];
-            while let Ok((size, _)) = peer.recvmsg2(&mut buf).await {
+            while let Ok((_size, _)) = peer.recvmsg2(&mut buf).await {
 
                 //println!("got {:?}", buf.len());
                 //println!("expected {:?}", size);
+
+                demux.push(&mut ctx, &buf);
             }
 
             log::info!("closing socket");
             peer.close().expect("Failed to close");
         });
     };
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let (opt, _) = Opt::try_build()?;
+
+    setup_logging(&opt)?;
+    setup_srt(&opt)?;
+
+    let http = run_http();
+    let srt = run_srt();
+
+    tokio::join!(http, srt).0
 }
