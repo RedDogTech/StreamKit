@@ -106,15 +106,3 @@ impl PacketFilter for Scte35StreamConsumer {
         self.section.consume(ctx, pk);
     }
 }
-
-pub struct PcrWatch(pub Option<ClockRef>);
-impl PacketFilter for PcrWatch {
-    type Ctx = IngestDemuxContext;
-    fn consume(&mut self, _ctx: &mut Self::Ctx, pk: &Packet<'_>) {
-        if let Some(af) = pk.adaptation_field() {
-            if let Ok(pcr) = af.pcr() {
-                Some(pcr);
-            }
-        }
-    }
-}

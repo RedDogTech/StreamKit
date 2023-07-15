@@ -1,3 +1,6 @@
+pub mod scte;
+pub mod pcr;
+
 use std::collections::HashMap;
 
 use mpeg2ts_reader::{
@@ -6,10 +9,8 @@ use mpeg2ts_reader::{
 };
 
 use crate::store;
+use self::{scte::Scte35StreamConsumer, pcr::PcrWatch};
 
-use self::scte::{PcrWatch, Scte35StreamConsumer};
-
-pub mod scte;
 
 mpeg2ts_reader::packet_filter_switch! {
     IngestFilterSwitch<IngestDemuxContext> {
@@ -93,12 +94,12 @@ impl DemuxContext for IngestDemuxContext {
             },
 
             FilterRequest::Pmt {pid, program_number} => {
-                // prepare structure needed to print PCR values later on
                 self.last_pcrs.insert(pid, None);
                 IngestFilterSwitch::Pmt(self.construct_pmt(pid, program_number))
             }
 
-            FilterRequest::ByStream { program_pid, .. } => {
+            FilterRequest::ByStream { program_pid, stream_info, .. } => {
+                log::warn!("{:?}",stream_info);
                 IngestFilterSwitch::Pcr(PcrWatch(self.last_pcr(program_pid)))
             }
 
