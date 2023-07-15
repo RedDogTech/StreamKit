@@ -9,6 +9,7 @@ fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
 
     // FIXME: move this to conifg option
     log_builder.filter(Some("srt_rs::log::log"), LevelFilter::Error);
+    log_builder.filter(Some("hyper::proto"), LevelFilter::Error);
     log_builder.init();
     Ok(())
 }
