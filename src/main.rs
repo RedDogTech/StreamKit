@@ -29,48 +29,49 @@ async fn run_http() -> anyhow::Result<()> {
 
     log::info!("starting HLS server at 127.0.0.1:3000");
 
-    // run it with hyper on localhost:3000
-    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .map_err(anyhow::Error::from)
+    tokio::task::spawn(async move {
+        // run it with hyper on localhost:3000
+        axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
+            .serve(app.into_make_service())
+            .await
+            .unwrap()
+            
+    }).await.map_err(anyhow::Error::from)
 }
 
 async fn run_srt() -> anyhow::Result<()> {
     let test = srt_rs::builder().listen("127.0.0.1:9000", 1)?;
 
     log::info!("waiting for connection...");
-    log::debug!("srt server running srt://127.0.0.1:9000?streamid=1234"); 
-    tokio::task::spawn(async move {
-        loop {
-            let (peer, peer_addr) = test.accept().await.unwrap();
-                log::debug!("new connection from {:?}", peer_addr);
+    log::debug!("srt server running srt://127.0.0.1:9000?streamid=1234");
+ 
+        while let Ok((peer, peer_addr)) = test.accept().await {
+            log::debug!("new connection from {:?}", peer_addr);
 
-                if let Ok(streamid) = peer.get_stream_id() {
-                    if streamid.is_empty() {
-                        log::warn!("empty stream id dropping {}", peer_addr);
-                        peer.close().expect("Failed to close");
-                        return;
-                    }
+            if let Ok(streamid) = peer.get_stream_id() {
+                if streamid.is_empty() {
+                    log::warn!("empty stream id dropping {}", peer_addr);
+                    peer.close().expect("Failed to close");
+                    break;
+                } else {
+                    log::debug!("accepted {:?}", streamid);
                 }
+            }
 
-                let store = store::Store::new();
-                let (mut ctx, mut demux) = stream_kit::mpegts::create_demux(store.clone());
+            let store = store::Store::new();
+            let (mut ctx, mut demux) = stream_kit::mpegts::create_demux(store.clone());
 
+            tokio::task::spawn(async move {
                 let mut buf = [0; 1316];
                 while let Ok((_size, _)) = peer.recvmsg2(&mut buf).await {
-
-                    //println!("got {:?}", buf.len());
-                    //println!("expected {:?}", size);
-
                     demux.push(&mut ctx, &buf);
                 }
 
                 log::info!("closing socket");
                 peer.close().expect("Failed to close");
-        
-        };
-    }).await.map_err(anyhow::Error::from)
+            });
+        }
+    Ok(())         
 }
 
 #[tokio::main]
@@ -80,5 +81,7 @@ async fn main() -> anyhow::Result<()> {
     setup_logging(&opt)?;
     setup_srt(&opt)?;
 
-    tokio::join!(run_http(), run_srt()).1
+    let _ = tokio::join!(run_http(), run_srt());
+
+    Ok(())
 }
