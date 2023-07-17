@@ -20,7 +20,15 @@ lazy_static = "1.4.0"
 # Media Deps
 mpeg2ts-reader = "0.15.0"
 scte35-reader = "0.14.0"
+adts-reader = "0.3"
 
 # Internal Packages
 
+bytesio = { path = "core/bytesio", version = "0.0.1" }
+exp_golomb = { path = "core/exp_golomb", version = "0.1.0" }
 srt-rs = { path = "vendors/srt-rs", version = "0.1.0" }
+mp4 = { path = "containers/mp4", version = "0.0.1" }
+aac = { path = "codecs/aac", version = "0.1.0" }
+av1 = { path = "codecs/av1", version = "0.1.0" }
+h264 = { path = "codecs/h264", version = "0.1.0" }
+h265 = { path = "codecs/h265", version = "0.1.0" }
