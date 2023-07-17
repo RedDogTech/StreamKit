@@ -1,11 +1,12 @@
 pub mod scte;
 pub mod pcr;
+pub mod adts;
 
 use std::collections::HashMap;
 
 use mpeg2ts_reader::{
-    demultiplex::{FilterRequest, NullPacketFilter, PatPacketFilter, PmtPacketFilter, FilterChangeset, Demultiplex, DemuxContext},
-    packet::{Pid, ClockRef}
+    demultiplex::{FilterRequest, NullPacketFilter, PatPacketFilter, PmtPacketFilter, FilterChangeset, Demultiplex, DemuxContext, self},
+    packet::{Pid, ClockRef}, pes::{Timestamp, self}, StreamType
 };
 
 use crate::store;
@@ -26,7 +27,7 @@ mpeg2ts_reader::packet_filter_switch! {
         //Handle the codecs
         //H264: pes::PesPacketFilter<IngestDemuxContext, h264::H264ElementaryStreamConsumer>,
         //H265: pes::PesPacketFilter<IngestDemuxContext, h265::H265ElementaryStreamConsumer>,
-        //Adts: pes::PesPacketFilter<IngestDemuxContext, adts::AdtsElementaryStreamConsumer>,
+        Adts: pes::PesPacketFilter<IngestDemuxContext, adts::AdtsElementaryStreamConsumer>,
     }
 }
 
@@ -84,9 +85,9 @@ impl DemuxContext for IngestDemuxContext {
             //     program_pid, stream_type: StreamType::H264, pmt, stream_info,
             // } => IngestFilterSwitch::H264(h264::H264ElementaryStreamConsumer::construct(stream_info, self.store.clone())),
 
-            // demultiplex::FilterRequest::ByStream {
-            //     program_pid, stream_type: StreamType::Adts, pmt, stream_info,
-            // } => IngestFilterSwitch::Adts(adts::AdtsElementaryStreamConsumer::construct(stream_info, self.store.clone())),
+            demultiplex::FilterRequest::ByStream {
+                program_pid, stream_type: StreamType::Adts, pmt, stream_info,
+            } => IngestFilterSwitch::Adts(adts::AdtsElementaryStreamConsumer::construct(stream_info, self.store.clone())),
             
             FilterRequest::ByStream { program_pid, stream_type: scte35_reader::SCTE35_STREAM_TYPE, pmt,stream_info} => {
                 log::warn!("by stream!");
@@ -111,5 +112,47 @@ impl DemuxContext for IngestDemuxContext {
                 IngestFilterSwitch::Null(NullPacketFilter::default())
             }
         }
+    }
+}
+
+struct UnwrapTimestamp {
+    last: Option<Timestamp>,
+    carry: u64,
+}
+impl Default for UnwrapTimestamp {
+    fn default() -> Self {
+        UnwrapTimestamp {
+            last: None,
+            carry: 0
+        }
+    }
+}
+impl UnwrapTimestamp {
+    /// Panics if the `update()` method as never been called
+    fn unwrap(&self, ts: Timestamp) -> i64 {
+        // check invariant,
+        assert_eq!(self.carry & Timestamp::MAX.value(), 0);
+
+        let last = self.last.expect("No previous call to update");
+        let diff = ts.value() as i64 - last.value() as i64;
+        let half = (Timestamp::MAX.value() / 2) as i64;
+        if diff > half {
+            ts.value() as i64 + self.carry as i64 - (Timestamp::MAX.value() + 1) as i64
+        } else if diff < -(half as i64) {
+            ts.value() as i64 + self.carry as i64 + (Timestamp::MAX.value() + 1) as i64
+        } else {
+            ts.value() as i64 + self.carry as i64
+        }
+    }
+
+    fn update(&mut self, ts: Timestamp) {
+        if let Some (last) = self.last {
+            let half = (Timestamp::MAX.value() / 2) as i64;
+            let diff = ts.value() as i64 - last.value() as i64;
+            if diff < -half {
+                self.carry += Timestamp::MAX.value() + 1;
+            }
+        }
+        self.last = Some(ts);
     }
 }
