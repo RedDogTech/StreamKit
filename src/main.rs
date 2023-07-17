@@ -1,4 +1,4 @@
-use stream_kit::{Opt, store};
+use stream_kit::{Opt, session::SessionManager, mpegts};
 use srt_rs::log as srt_log;
 use log::LevelFilter;
 use stream_kit::routes;
@@ -23,7 +23,7 @@ fn setup_srt(_: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_http() -> anyhow::Result<()> {
+async fn run_http(session: SessionManager) -> anyhow::Result<()> {
     
     let app = routes::create_app();
 
@@ -39,7 +39,7 @@ async fn run_http() -> anyhow::Result<()> {
     }).await.map_err(anyhow::Error::from)
 }
 
-async fn run_srt() -> anyhow::Result<()> {
+async fn run_srt(mut session: SessionManager) -> anyhow::Result<()> {
     let test = srt_rs::builder().listen("127.0.0.1:9000", 1)?;
 
     log::info!("waiting for connection...");
@@ -53,23 +53,22 @@ async fn run_srt() -> anyhow::Result<()> {
                     log::warn!("empty stream id dropping {}", peer_addr);
                     peer.close().expect("Failed to close");
                     break;
-                } else {
-                    log::debug!("accepted {:?}", streamid);
                 }
+
+                log::debug!("accepted {:?}", streamid);
+                let store  = session.new_store(streamid)?;
+                let (mut ctx, mut demux) = mpegts::create_demux(store.clone());
+
+                tokio::task::spawn(async move {
+                    let mut buf = [0; 1316];
+                    while let Ok((_size, _)) = peer.recvmsg2(&mut buf).await {
+                        demux.push(&mut ctx, &buf);
+                    }
+
+                    log::info!("closing socket");
+                    peer.close().expect("Failed to close");
+                });
             }
-
-            let store = store::Store::new();
-            let (mut ctx, mut demux) = stream_kit::mpegts::create_demux(store.clone());
-
-            tokio::task::spawn(async move {
-                let mut buf = [0; 1316];
-                while let Ok((_size, _)) = peer.recvmsg2(&mut buf).await {
-                    demux.push(&mut ctx, &buf);
-                }
-
-                log::info!("closing socket");
-                peer.close().expect("Failed to close");
-            });
         }
     Ok(())         
 }
@@ -81,7 +80,9 @@ async fn main() -> anyhow::Result<()> {
     setup_logging(&opt)?;
     setup_srt(&opt)?;
 
-    let _ = tokio::join!(run_http(), run_srt());
+    let session = SessionManager::new();
+
+    let _ = tokio::join!(run_http(session.clone()), run_srt(session.clone()));
 
     Ok(())
 }
