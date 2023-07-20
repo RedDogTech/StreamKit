@@ -1,9 +1,12 @@
+use bytes::{Bytes};
 use mpeg2ts_reader::{packet, pes, psi, descriptor};
 use crate::mpegts::IngestDemuxContext;
 use crate::store;
 
+use crate::mpegts::codec::aac as aac_reader;
+
 struct IngestAdtsConsumer {
-    store: store::Store,
+    //store: store::Store,
     pid: packet::Pid,
     //track_id: Option<store::TrackId>,
     last_pts: Option<pes::Timestamp>,
@@ -27,10 +30,11 @@ impl IngestAdtsConsumer {
         self.last_dts = dts;
     }
 }
-impl adts_reader::AdtsConsumer for IngestAdtsConsumer {
-    fn new_config(&mut self, mpeg_version: adts_reader::MpegVersion, protection: adts_reader::ProtectionIndicator, aot: adts_reader::AudioObjectType, freq: adts_reader::SamplingFrequency, private_bit: u8, channels: adts_reader::ChannelConfiguration, originality: adts_reader::Originality, home: u8) {
-        //self.track_id = Some(self.store.allocate_aac_track(aot, freq, channels, self.max_bitrate));
-        println!("ADTS {:?} new config: {:?} {:?} {:?} {:?} {:?} {:?} home={:?}", self.pid, mpeg_version, protection, aot, freq, channels, originality, home);
+impl aac_reader::AdtsConsumer for IngestAdtsConsumer {
+    fn new_config(&mut self, buf: &[u8]) {
+        let test = aac::AudioSpecificConfig::parse_adts(Bytes::copy_from_slice(buf));
+
+        println!("{:?}", test);
     }
 
     fn payload(&mut self, buffer_fullness: u16, no_of_blocks: u8, buf: &[u8]) {
@@ -60,24 +64,21 @@ impl adts_reader::AdtsConsumer for IngestAdtsConsumer {
         // })
     }
     
-    fn error(&mut self, err: adts_reader::AdtsParseError) {
+    fn error(&mut self, err: aac_reader::AdtsParseError) {
         println!("ADTS error: {:?}", err);
     }
 }
 
 pub struct AdtsElementaryStreamConsumer {
-    parser: adts_reader::AdtsParser<IngestAdtsConsumer>,
+    parser: aac_reader::AdtsParser<IngestAdtsConsumer>,
 }
 impl AdtsElementaryStreamConsumer {
-    pub fn construct(stream_info: &psi::pmt::StreamInfo, store: store::Store) -> pes::PesPacketFilter<IngestDemuxContext, AdtsElementaryStreamConsumer> {
+    pub fn construct(stream_info: &psi::pmt::StreamInfo) -> pes::PesPacketFilter<IngestDemuxContext, AdtsElementaryStreamConsumer> {
         let mut max_bitrate = None;
         for desc in stream_info.descriptors::<descriptor::CoreDescriptors>() {
             match desc {
                 Ok(d) => match d {
                     mpeg2ts_reader::descriptor::CoreDescriptors::MaximumBitrate(max) => {
-                        // TODO: if we could already have allocated a store::AvcTrack by here,
-                        //       we could pass the data in more directly, rather than bouncing it
-                        //       via the IngestH264Context instance,
                         max_bitrate = Some(max.maximum_bits_per_second());
                     }
                     _ => println!("  ADTS {:?}: {:?}", stream_info.elementary_pid(), d),
@@ -87,8 +88,8 @@ impl AdtsElementaryStreamConsumer {
         }
         pes::PesPacketFilter::new(
             AdtsElementaryStreamConsumer {
-                parser: adts_reader::AdtsParser::new(IngestAdtsConsumer {
-                    store,
+                parser: aac_reader::AdtsParser::new(IngestAdtsConsumer {
+                    //store,
                     pid: stream_info.elementary_pid(),
                     //track_id: None,
                     last_pts: None,
@@ -103,6 +104,7 @@ impl AdtsElementaryStreamConsumer {
 
 impl pes::ElementaryStreamConsumer<IngestDemuxContext> for AdtsElementaryStreamConsumer {
     fn start_stream(&mut self, _ctx: &mut IngestDemuxContext) { println!("ADTS start_steam()"); }
+
     fn begin_packet(&mut self, _ctx: &mut IngestDemuxContext, header: pes::PesHeader) {
         match header.contents() {
             pes::PesContents::Parsed(Some(parsed)) => {
@@ -126,6 +128,9 @@ impl pes::ElementaryStreamConsumer<IngestDemuxContext> for AdtsElementaryStreamC
         //println!("ADTS: continue_packet() {}", data.len());
         self.parser.push(data);
     }
+
     fn end_packet(&mut self, _ctx: &mut IngestDemuxContext) { }
+
     fn continuity_error(&mut self, _ctx: &mut IngestDemuxContext) { }
+
 }

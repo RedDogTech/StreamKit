@@ -12,7 +12,7 @@ pub struct AudioSpecificConfig {
     pub audio_object_type: AudioObjectType,
     pub sampling_frequency: u32,
     pub channel_configuration: u8,
-    pub data: Bytes,
+    //pub data: Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Eq)]
@@ -93,6 +93,8 @@ impl SampleFrequencyIndex {
 impl AudioSpecificConfig {
     pub fn parse(data: Bytes) -> io::Result<Self> {
         let mut bitreader = BitReader::from(data);
+
+
         let mut audio_object_type = bitreader.read_bits(5)? as u16;
         if audio_object_type == 31 {
             audio_object_type = 32 + bitreader.read_bits(6)? as u16;
@@ -105,6 +107,7 @@ impl AudioSpecificConfig {
                     "Invalid sampling frequency index",
                 )
             })?;
+        
         let sampling_frequency = match sampling_frequency_index {
             SampleFrequencyIndex::FreqEscape => bitreader.read_bits(24)? as u32,
             _ => sampling_frequency_index.to_freq(),
@@ -116,7 +119,31 @@ impl AudioSpecificConfig {
             audio_object_type: audio_object_type.into(),
             sampling_frequency,
             channel_configuration,
-            data: bitreader.into_inner().into_inner(),
+            //data: bitreader.into_inner().into_inner(),
+        })
+    }
+
+    pub fn parse_adts(data: Bytes) -> io::Result<Self> {
+        let mut bitreader = BitReader::from(data);
+
+        let sync_word = bitreader.read_bits(12)? as u16;
+        assert_eq!(sync_word, 0xfff);
+
+        let _ = bitreader.read_bits(4)?;
+        let audio_object_type = bitreader.read_bits(2)? as u16 + 1;
+
+        let sampling_frequency = bitreader.read_bits(4)? as u8;
+
+        let _ = bitreader.read_bit()?;
+
+        let channel_configuration = bitreader.read_bits(3)? as u8;
+
+
+        Ok(Self {
+            audio_object_type: audio_object_type.into(),
+            sampling_frequency: SampleFrequencyIndex::from_u8(sampling_frequency).unwrap().to_freq(),
+            channel_configuration,
+            //data: bitreader.into_inner().into_inner(),
         })
     }
 }

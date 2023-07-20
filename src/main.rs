@@ -1,7 +1,10 @@
-use stream_kit::{Opt, session::SessionManager, mpegts};
+use std::sync::Arc;
+
+use stream_kit::{Opt, mpegts, session::SessionManager};
 use srt_rs::log as srt_log;
 use log::LevelFilter;
 use stream_kit::routes;
+use tokio::sync::Mutex;
 
 fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
     let mut log_builder = env_logger::Builder::new();
@@ -23,10 +26,8 @@ fn setup_srt(_: &Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_http(session: SessionManager) -> anyhow::Result<()> {
-    
-    let app = routes::create_app();
-
+async fn run_http(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
+    let app = routes::create_app(store);
     log::info!("starting HLS server at 127.0.0.1:3000");
 
     tokio::task::spawn(async move {
@@ -39,7 +40,7 @@ async fn run_http(session: SessionManager) -> anyhow::Result<()> {
     }).await.map_err(anyhow::Error::from)
 }
 
-async fn run_srt(mut session: SessionManager) -> anyhow::Result<()> {
+async fn run_srt(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
     let test = srt_rs::builder().listen("127.0.0.1:9000", 1)?;
 
     log::info!("waiting for connection...");
@@ -56,8 +57,8 @@ async fn run_srt(mut session: SessionManager) -> anyhow::Result<()> {
                 }
 
                 log::debug!("accepted {:?}", streamid);
-                let store  = session.new_store(streamid)?;
-                let (mut ctx, mut demux) = mpegts::create_demux(store.clone());
+                //let store  = session.new_store(streamid)?;
+                let (mut ctx, mut demux) = mpegts::create_demux();
 
                 tokio::task::spawn(async move {
                     let mut buf = [0; 1316];
@@ -80,9 +81,10 @@ async fn main() -> anyhow::Result<()> {
     setup_logging(&opt)?;
     setup_srt(&opt)?;
 
-    let session = SessionManager::new();
+    let store = Arc::new(Mutex::new(SessionManager::new()));
+    store.lock().await.new_store("test").await?;
 
-    let _ = tokio::join!(run_http(session.clone()), run_srt(session.clone()));
+    let _ = tokio::join!(run_http(store.clone()), run_srt(store.clone()));
 
     Ok(())
 }

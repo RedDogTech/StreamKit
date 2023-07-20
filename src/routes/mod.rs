@@ -1,22 +1,40 @@
-use axum::{Router, routing::get, response::{IntoResponse, Html, AppendHeaders}, extract::Path, http::{header, StatusCode}};
 
-pub fn create_app() -> Router {
+use std::sync::Arc;
+
+use axum::{Router, routing::get, response::{IntoResponse, Html}, extract::{Path, State}, http::{header, Response, StatusCode}, body::Body};
+use tokio::sync::Mutex;
+use crate::session::SessionManager;
+
+pub fn create_app(store: Arc<Mutex<SessionManager>>) -> Router {
     Router::new()
         .route("/:id/playlist.m3u8", get(playlist))
         .route("/:id/segment", get(segment))
         .route("/:id/part", get(part))
         .route("/:id/init", get(init))
+        .with_state(store)
 }
 
-async fn playlist(Path(_id): Path<String>) -> impl IntoResponse {
+async fn playlist(Path(id): Path<String>, State(state): State<Arc<Mutex<SessionManager>>>) -> impl IntoResponse {
     
-    let headers = AppendHeaders([
-        (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-        (header::CACHE_CONTROL, "max-age=0"),
-        (header::CONTENT_TYPE, "application/x-mpegURL")
-    ]);
+    // let headers = AppendHeaders([
+    //     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+    //     (header::CACHE_CONTROL, "max-age=0"),
+    //     (header::CONTENT_TYPE, "application/x-mpegURL")
+    // ]);
     
-    (headers, StatusCode::NOT_FOUND)
+    if let Some(text) = state.lock().await.get_manifest(&id.to_owned()).await {
+        return Response::builder()
+            .header(header::CONTENT_TYPE, "application/x-mpegURL")
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(header::CACHE_CONTROL, "max-age=0")
+            .body(Body::from(text))
+            .unwrap()
+    }
+
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::empty())
+        .unwrap()
 }
 
 

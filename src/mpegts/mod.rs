@@ -2,6 +2,8 @@ pub mod scte;
 pub mod pcr;
 pub mod adts;
 
+pub mod codec;
+
 use std::collections::HashMap;
 
 use mpeg2ts_reader::{
@@ -31,22 +33,22 @@ mpeg2ts_reader::packet_filter_switch! {
     }
 }
 
-pub fn create_demux(store: store::Store) -> (IngestDemuxContext, Demultiplex<IngestDemuxContext>) {
-    let mut ctx = IngestDemuxContext::new(store);
+pub fn create_demux() -> (IngestDemuxContext, Demultiplex<IngestDemuxContext>) {
+    let mut ctx = IngestDemuxContext::new();
     let demux = Demultiplex::new(&mut ctx);
     (ctx, demux)
 }
 
 pub struct IngestDemuxContext {
     changeset: FilterChangeset<IngestFilterSwitch>,
-    store: store::Store,
+    //store: store::Store,
     last_pcrs: HashMap<Pid, Option<ClockRef>>,
 }
 
 impl IngestDemuxContext {
-    pub fn new(store: store::Store) -> IngestDemuxContext {
+    pub fn new() -> IngestDemuxContext {
         IngestDemuxContext {
-            store,
+            //store,
             changeset: Default::default(),
             last_pcrs: HashMap::new(),
         }
@@ -87,7 +89,7 @@ impl DemuxContext for IngestDemuxContext {
 
             demultiplex::FilterRequest::ByStream {
                 program_pid, stream_type: StreamType::Adts, pmt, stream_info,
-            } => IngestFilterSwitch::Adts(adts::AdtsElementaryStreamConsumer::construct(stream_info, self.store.clone())),
+            } => IngestFilterSwitch::Adts(adts::AdtsElementaryStreamConsumer::construct(stream_info)),
             
             FilterRequest::ByStream { program_pid, stream_type: scte35_reader::SCTE35_STREAM_TYPE, pmt,stream_info} => {
                 log::warn!("by stream!");

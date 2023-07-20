@@ -15,14 +15,9 @@ pub struct PartialSegment {
 #[derive(Clone)]
 pub struct Segment {
     seq: u32,
-    /*ts duration*/
     duration: i64,
-    discontinuity: bool,
-    /*ts name*/
-    name: String,
-    is_eof: bool,
     is_complete: bool,
-    program_dateTime: String,
+    program_datetime: String,
 
     // LLHLS partial segments
     partials: Vec<PartialSegment>,
@@ -32,21 +27,15 @@ impl Segment {
     pub fn new(
         seq: u32,
         duration: i64,
-        discontinuity: bool,
-        name: String,
-        is_eof: bool,
         is_complete: bool,
-        program_dateTime: String,
+        program_datetime: String,
     ) -> Self {
         Self {
             seq,
             duration,
-            discontinuity,
-            name,
-            is_eof,
             is_complete,
             partials: vec![],
-            program_dateTime,
+            program_datetime,
         }
     }
 
@@ -60,6 +49,7 @@ impl Segment {
     }
 }
 
+#[derive(Clone)]
 pub struct M3u8 {
     version: u16,
     low_latency_mode: bool,
@@ -69,24 +59,26 @@ pub struct M3u8 {
     segments: VecDeque<Segment>,
     is_live: bool,
     live_ts_count: usize,
+    has_init: bool,
 }
 
 impl M3u8 {
     pub fn new() -> Self {
 
         Self {
-            version: 6,
+            version: 9,
             low_latency_mode: true,
             part_target: 1,
             duration: 10,
             sequence_no: Arc::new(RwLock::new(0)),
             segments: VecDeque::new(),
             is_live: true,
-            live_ts_count: 3
+            live_ts_count: 3,
+            has_init: false,
         }
     }
 
-    pub async fn get_manifest(self) -> Result<String> {
+    pub async fn get_manifest(&self) -> Result<String> {
         let mut manifest = String::new();
 
         writeln!(manifest, "#EXTM3U")?;
@@ -95,25 +87,31 @@ impl M3u8 {
 
         if self.low_latency_mode {
             writeln!(manifest, "#EXT-X-PART-INF:PART-TARGET={}", self.part_target)?;
-            writeln!(manifest, "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={}", self.part_target * 3.5)?;
+            writeln!(manifest, "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK={}", self.part_target * (3.5 as i64))?;
         }
 
         if !self.is_live {
             writeln!(manifest, "#EXT-X-PLAYLIST-TYPE:VOD")?;
             writeln!(manifest, "#EXT-X-ALLOW-CACHE:YES")?;
+        } else {
+            writeln!(manifest, "#EXT-X-PLAYLIST-TYPE:EVENT")?;
+        }
+
+        if self.has_init {
+            writeln!(manifest, "#EXT-X-MAP:URI=\"init\"")?;
         }
 
         writeln!(manifest, "#EXT-X-MEDIA-SEQUENCE:{}", self.sequence_no.read().await)?;
 
         for segment in &self.segments {
-            let extinf = 0;
+            let mut extinf = 0;
 
             writeln!(manifest, "")?; //Blank new line
-            writeln!(manifest, "#EXT-X-PROGRAM-DATE-TIME:{}", segment.program_dateTime)?;
+            writeln!(manifest, "#EXT-X-PROGRAM-DATE-TIME:{}", segment.program_datetime)?;
             if self.low_latency_mode {
                 
                 for (index, partial) in segment.partials.iter().enumerate() {
-                    let independant = String::new();
+                    let mut independant = String::new();
 
                     if partial.independant {
                         write!(independant, ",INDEPENDENT=YES")?;
