@@ -1,7 +1,7 @@
 use std::io;
 
 use bytes::Bytes;
-use bytesio::bit_reader::BitReader;
+use bytesio::{bit_reader::BitReader, bit_writer::BitWriter};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -12,7 +12,7 @@ pub struct AudioSpecificConfig {
     pub audio_object_type: AudioObjectType,
     pub sampling_frequency: u32,
     pub channel_configuration: u8,
-    //pub data: Bytes,
+    pub data: Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Eq)]
@@ -119,7 +119,7 @@ impl AudioSpecificConfig {
             audio_object_type: audio_object_type.into(),
             sampling_frequency,
             channel_configuration,
-            //data: bitreader.into_inner().into_inner(),
+            data: bitreader.into_inner().into_inner(),
         })
     }
 
@@ -138,12 +138,17 @@ impl AudioSpecificConfig {
 
         let channel_configuration = bitreader.read_bits(3)? as u8;
 
+        //Write ACS for the mpa1 box
+        let mut bit_writer = BitWriter::default();
+        bit_writer.write_bits(audio_object_type.into(), 5)?;
+        bit_writer.write_bits(sampling_frequency.into(), 4)?;
+        bit_writer.write_bits(channel_configuration.into(), 4)?;
 
         Ok(Self {
             audio_object_type: audio_object_type.into(),
             sampling_frequency: SampleFrequencyIndex::from_u8(sampling_frequency).unwrap().to_freq(),
             channel_configuration,
-            //data: bitreader.into_inner().into_inner(),
+            data: bit_writer.into_inner().into(),
         })
     }
 }
