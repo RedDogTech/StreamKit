@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use stream_kit::{Opt, mpegts, session::SessionManager};
+use bytes::{BytesMut, BufMut};
+use stream_kit::{Opt, session::SessionManager};
 use srt_rs::log as srt_log;
 use log::LevelFilter;
 use stream_kit::routes;
@@ -49,25 +50,34 @@ async fn run_srt(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
         while let Ok((peer, peer_addr)) = test.accept().await {
             log::debug!("new connection from {:?}", peer_addr);
 
-            if let Ok(streamid) = peer.get_stream_id() {
-                if streamid.is_empty() {
+            if let Ok(stream_id) = peer.get_stream_id() {
+                if stream_id.is_empty() {
                     log::warn!("empty stream id dropping {}", peer_addr);
                     peer.close().expect("Failed to close");
                     break;
                 }
 
-                log::debug!("accepted {:?}", streamid);
-                //let store  = session.new_store(streamid)?;
-                let (mut ctx, mut demux) = mpegts::create_demux();
+                log::debug!("accepted {:?}", stream_id);
+                store.lock().await.new_store(&stream_id).await?;
+
+                let clone_store = store.clone();
 
                 tokio::task::spawn(async move {
                     let mut buf = [0; 1316];
-                    while let Ok((_size, _)) = peer.recvmsg2(&mut buf).await {
-                        demux.push(&mut ctx, &buf);
+
+                    while let Ok((size, _)) = peer.recvmsg2(&mut buf).await {
+                        let mut buffer = BytesMut::with_capacity(size);
+                        buffer.put(&buf[..]);
+                        //demux.push(&mut ctx, &buf);
+                        
+                        println!("");
+                        println!("{:?}", buffer);
+                        println!("");
                     }
 
                     log::info!("closing socket");
                     peer.close().expect("Failed to close");
+                    clone_store.lock().await.remove_store(&stream_id).expect("Failed to close");
                 });
             }
         }
@@ -82,7 +92,6 @@ async fn main() -> anyhow::Result<()> {
     setup_srt(&opt)?;
 
     let store = Arc::new(Mutex::new(SessionManager::new()));
-    store.lock().await.new_store("test").await?;
 
     let _ = tokio::join!(run_http(store.clone()), run_srt(store.clone()));
 

@@ -1,20 +1,16 @@
 use anyhow::{bail, Result};
-use tokio::sync::RwLock;
 use std::{collections::HashMap, sync::Arc};
-
 use crate::hls::m3u8::M3u8;
-
-
 
 #[derive(Clone)]
 pub struct SessionManager {
-    stores: Arc<RwLock<HashMap<String, Arc<M3u8>>>>,
+    stores: HashMap<String, Arc<M3u8>>,
 }
 
 impl SessionManager {
     pub fn new() -> SessionManager {
         SessionManager {
-            stores: Arc::new(RwLock::new(HashMap::new())),
+            stores: HashMap::new(),
         }
     }
 
@@ -25,14 +21,12 @@ impl SessionManager {
 
         let manifest = Arc::new(M3u8::new());
 
-        self.stores.write().await.insert(stream_id.to_string(), manifest);
+        self.stores.insert(stream_id.to_string(), manifest);
         Ok(())
     }
 
     pub async fn get_manifest(&self, stream_id: &str) -> Option<String> {
-        let cache = self.stores.read().await;
-
-        if let Some(data) = cache.get(stream_id) {
+        if let Some(data) = self.stores.get(stream_id) {
             return data.clone().get_manifest().await.ok();
         }
 
@@ -40,13 +34,15 @@ impl SessionManager {
     }
 
     pub fn check_streamid(&self, stream_id: &str) -> bool {
-        if let Ok(store) = self.stores.try_read() {
-            return store.contains_key(stream_id);
-        }
-        false
+        self.stores.contains_key(stream_id)
     }
 
-    // pub fn get_store(&mut self, stream_id: String) -> Option<&mut M3u8> {
-    //     self.stores.get_mut(&stream_id)
-    // }
+    pub fn remove_store(&mut self, stream_id: &str) -> Result<()> {
+        if let Some(data) = self.stores.remove(stream_id) {
+            drop(data);
+        }
+
+        Ok(())
+    }
+
 }
