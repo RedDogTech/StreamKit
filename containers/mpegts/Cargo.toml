@@ -9,3 +9,4 @@ edition = "2021"
 bytes = "1"
 chrono = "0.4.26"
 bytesio = { path = "../../core/bytesio" }
+anyhow = "1"
