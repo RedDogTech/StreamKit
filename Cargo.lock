@@ -825,9 +825,12 @@ name = "mpegts"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "byteorder",
  "bytes",
  "bytesio",
  "chrono",
+ "log",
+ "thiserror",
 ]
 
 [[package]]

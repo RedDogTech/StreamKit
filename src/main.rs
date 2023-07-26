@@ -64,15 +64,10 @@ async fn run_srt(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
 
                 tokio::task::spawn(async move {
                     let mut buf = [0; 1316];
+                    let mut demux = mpegts::demux::Demux::new();
 
                     while let Ok((size, _)) = peer.recvmsg2(&mut buf).await {
-                        let mut buffer = BytesMut::with_capacity(size);
-                        buffer.put(&buf[..]);
-                        //demux.push(&mut ctx, &buf);
-                        
-                        println!("");
-                        println!("{:?}", buffer);
-                        println!("");
+                        let _ = demux.push(&mut buf[..size]);
                     }
 
                     log::info!("closing socket");

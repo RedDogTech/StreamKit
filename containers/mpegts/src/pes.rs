@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bytesio::bit_reader::BitReader;
 
-
+const HEADER_SIZE:u8 = 6;
 
 fn read_pes_timming(mut packet: BitReader) -> Result<(u64, u64)> {
     let flag = packet.read_bits(8)? as u8;

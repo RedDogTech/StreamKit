@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 bytes = "1"
+byteorder = "1"
 chrono = "0.4.26"
 bytesio = { path = "../../core/bytesio" }
 anyhow = "1"
+thiserror = "1"
+log = "0.4"
