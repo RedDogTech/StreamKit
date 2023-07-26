@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT}, error::DemuxError, packet_header::PacketHeader};
-use byteorder::{BigEndian, ReadBytesExt};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT}, error::DemuxError, packet_header::PacketHeader, stream_type::StreamType};
+use byteorder::{ReadBytesExt, BigEndian};
 use anyhow::{Result, bail};
 
 pub const SYNC_BYTE: u8 = 0x47;
@@ -10,7 +10,7 @@ pub struct Demux {
     last_counter: u8,
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
-    streams: Vec<Pid>,
+    streams: HashMap<Pid, StreamType>,
 }
 
 impl Demux {
@@ -20,7 +20,7 @@ impl Demux {
             last_counter: 0,
             pmt_pid: None,
             pcr_pid: None,
-            streams: Vec::new(),
+            streams: HashMap::new(),
         }
     }
 
@@ -71,13 +71,30 @@ impl Demux {
                         }
                         
                         let pmt = PMT::try_new(&mut reader)?;
-                        println!("PMT:{:?}", pmt);
+                        self.pcr_pid = Some(pmt.pcr_pid);
+
+                        if self.streams.is_empty() {
+                            self.streams = pmt.streams;
+                        }
+                    }
+                }
+
+                if let Some(stream_type) = self.streams.get(&header.pid) {
+                    if header.pusi {
+                        println!("got {:?}", stream_type);
+                        let test:u32 = reader.read_u32::<BigEndian>()?;
+                        println!("packet_start_code ={}", (test >> 8) & 0x00FFFFFF);
+                        println!("stream_id ={}", test & 0xFF);
+
+                        let pes_length = reader.read_u16::<BigEndian>()?;
+                        println!("pes_length ={}", pes_length);
+                        // println!("{:?}, {:?}, {:?}", reader.read_u8()?, reader.read_u8()?, reader.read_u8()?);
+                        // println!("stream_id {:?}", reader.read_u8()?);
                     }
                 }
             }
         Ok(())
     }
-
 
     // pub fn demux_tables(&mut self, packet: Packet) {
 

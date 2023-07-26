@@ -1,4 +1,4 @@
-use std::io::{Cursor, Seek, SeekFrom};
+use std::{io::{Cursor, Seek, SeekFrom}, collections::HashMap};
 use bytes::Bytes;
 use anyhow::Result;
 use byteorder::{ReadBytesExt, BigEndian};
@@ -6,17 +6,11 @@ use byteorder::{ReadBytesExt, BigEndian};
 use crate::{pid::Pid, stream_type::StreamType};
 
 #[derive(Clone, Debug)]
-pub struct Stream {
-    stream_type: StreamType,
-    elementry_pid: Pid,
-}
-
-#[derive(Clone, Debug)]
 pub struct PMT {
     table_id: u8,
     program_number: u16,
-    pcr_pid: Pid,
-    streams: Vec<Stream>,
+    pub pcr_pid: Pid,
+    pub streams: HashMap<Pid, StreamType>,
 }
 
 impl PMT {
@@ -42,7 +36,7 @@ impl PMT {
         }
 
         let mut remain_bytes = section_length - 4 - 9 - program_info_length;
-        let mut streams = Vec::new();
+        let mut streams = HashMap::new();
 
         ////////
         //FIXME:    We should probbably use the readers own position
@@ -50,12 +44,10 @@ impl PMT {
         //          we keep track of the remaning values. :(
         //////// 
         while remain_bytes > 0 {
-            let stream_type = reader.read_u8()?;
+            let stream_type = StreamType::from(reader.read_u8()?);
+            let pid = Pid::from(reader.read_u16::<BigEndian>()? & 0x1FFF);
 
-            streams.push(Stream {
-                stream_type: StreamType::from(stream_type),
-                elementry_pid:  Pid::from(reader.read_u16::<BigEndian>()? & 0x1FFF),
-            });
+            streams.insert(pid, stream_type);
             
             //Skip over the extra info part
             let info_length = reader.read_u16::<BigEndian>()?  & 0x03FF;
