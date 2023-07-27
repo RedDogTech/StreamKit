@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT}, error::DemuxError, packet_header::PacketHeader, stream_type::StreamType};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::{PacketHeader, AdaptationControl}, stream_type::StreamType};
 use byteorder::{ReadBytesExt, BigEndian};
 use anyhow::{Result, bail};
 
@@ -38,17 +38,17 @@ impl Demux {
 
                 let header = PacketHeader::try_new(&mut reader)?;
 
-                if header.counter != (self.last_counter + 1) {
-                    log::debug!("Incorrect continutiy expected: {} got {}", (self.last_counter + 1), header.counter);
-                }
-                if (self.last_counter + 1) == 15 {
-                    self.last_counter = 0;
-                } else {
-                    self.last_counter = header.counter;
-                }
+                // if header.counter != (self.last_counter + 1) {
+                //     log::debug!("Incorrect continutiy expected: {} got {}", (self.last_counter + 1), header.counter);
+                // }
+                // if (self.last_counter + 1) == 15 {
+                //     self.last_counter = 0;
+                // } else {
+                //     self.last_counter = header.counter;
+                // }
 
                 if header.pid == Pid::PAT {
-                    if header.payload {
+                    if header.adaptation_control.has_payload() {
                         // skip pointer field
                         reader.seek(io::SeekFrom::Current(1))?;
                     }
@@ -65,7 +65,7 @@ impl Demux {
 
                 if let Some(pid) = self.pmt_pid {
                     if pid == header.pid {
-                        if header.payload {
+                        if header.adaptation_control.has_payload() {
                             // skip pointer field
                             reader.seek(io::SeekFrom::Current(1))?;
                         }
@@ -80,16 +80,13 @@ impl Demux {
                 }
 
                 if let Some(stream_type) = self.streams.get(&header.pid) {
-                    if header.pusi {
-                        println!("got {:?}", stream_type);
-                        let test:u32 = reader.read_u32::<BigEndian>()?;
-                        println!("packet_start_code ={}", (test >> 8) & 0x00FFFFFF);
-                        println!("stream_id ={}", test & 0xFF);
+                    if header.adaptation_control.has_payload() {
 
-                        let pes_length = reader.read_u16::<BigEndian>()?;
-                        println!("pes_length ={}", pes_length);
-                        // println!("{:?}, {:?}, {:?}", reader.read_u8()?, reader.read_u8()?, reader.read_u8()?);
-                        // println!("stream_id {:?}", reader.read_u8()?);
+                        if header.pusi {
+                            let _ = PesHeader::try_new(&mut reader)?;
+                        }
+                        
+
                     }
                 }
             }
