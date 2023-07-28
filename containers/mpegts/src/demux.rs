@@ -2,6 +2,7 @@ use std::{collections::HashMap, io::{self, Seek}};
 use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::{PacketHeader, AdaptationControl}, stream_type::StreamType};
 use byteorder::{ReadBytesExt, BigEndian};
 use anyhow::{Result, bail};
+use bytes::Bytes;
 
 pub const SYNC_BYTE: u8 = 0x47;
 pub const SIZE: usize = 188;
@@ -11,6 +12,13 @@ pub struct Demux {
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
     streams: HashMap<Pid, StreamType>,
+}
+
+pub struct Packet {
+    data: Bytes,
+    pts: Option<u64>,
+    dts: Option<u64>,
+    stream_type: StreamType,
 }
 
 impl Demux {
@@ -83,7 +91,8 @@ impl Demux {
                     if header.adaptation_control.has_payload() {
 
                         if header.pusi {
-                            let _ = PesHeader::try_new(&mut reader)?;
+                            let pes_header = PesHeader::try_new(&mut reader)?;
+                            println!("pes_header={:?}", pes_header);
                         }
                         
 
@@ -92,26 +101,4 @@ impl Demux {
             }
         Ok(())
     }
-
-    // pub fn demux_tables(&mut self, packet: Packet) {
-
-    //     let pid = packet.pid;
-
-    //     if pid.is_null() {
-    //         log::warn!("ignoring packet");
-    //         return;
-    //     }
-
-    //     match pid {
-    //         Pid::PAT => {
-    //             log::warn!("is PAT");
-    //             let pat = PAT::try_new(&packet);
-
-    //             println!("{:?}", pat);
-    //         }
-    //         Pid::Other(..) => {
-
-    //         }
-    //         _ => {}
-    //     }
 }

@@ -39,11 +39,13 @@ pub struct PacketHeader {
     pub counter: u8,
     pub adaptation_control: AdaptationControl,
     pub pcr_flag: bool,
+    pub header_size: i64,
 }
 
 impl PacketHeader {
 
     pub fn try_new(reader: &mut Cursor<Bytes>) -> Result<PacketHeader> {
+        let mut header_size = 4;
 
         let second_byte = reader.read_u8()?;
         let third_byte = reader.read_u8()?;
@@ -59,13 +61,15 @@ impl PacketHeader {
             //TODO: build reader for this, at the moment we can
             //      greedly ginore all of it but move the reader
             //      pointer forward.
-            let length = reader.read_u8()? as i64;
+            let adapt_length = reader.read_u8()? as i64;
+            header_size += 1;
 
-            if length != 0 {
+            if adapt_length != 0 {
                 let adapt_fields = reader.read_u8()?;
                 pcr_flag = (adapt_fields >> 4) & 0x01 != 0;
 
-                reader.seek(SeekFrom::Current(length - 1))?;
+                reader.seek(SeekFrom::Current(adapt_length - 1))?;
+                header_size += adapt_length;
             }
         }
 
@@ -75,6 +79,7 @@ impl PacketHeader {
             counter: forth_byte & 0xf,
             adaptation_control,
             pcr_flag,
+            header_size,
         })
     }
 }
