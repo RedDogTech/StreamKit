@@ -12,15 +12,8 @@ pub struct Demuxer<T> where T: DemuxerEvents {
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
     streams: HashMap<Pid, StreamType>,
-
+    pmt: Option<PMT>,
     events: T,
-}
-
-pub struct Packet {
-    data: Bytes,
-    pts: Option<u64>,
-    dts: Option<u64>,
-    stream_type: StreamType,
 }
 
 impl<T> Demuxer<T> where T: DemuxerEvents {
@@ -32,8 +25,17 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
             pcr_pid: None,
             streams: HashMap::new(),
 
+            pmt: None,
+
             events,
         }
+    }
+
+    pub fn has_stream(&self, pid: &Pid) -> bool {
+        if let Some(pmt) = &self.pmt {
+            return pmt.streams.contains_key(pid);
+        }
+        false
     }
 
     pub fn push(&mut self, buf: &[u8]) ->Result<()> {
@@ -85,15 +87,17 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                         let pmt = PMT::try_new(&mut reader)?;
                         self.pcr_pid = Some(pmt.pcr_pid);
 
-                        if self.streams.is_empty() {
-                            self.streams = pmt.streams;
+                        if self.pmt.is_none() {
+                            for (key, value) in &pmt.streams { 
+                                self.events.on_program_streams(&key, &value);
+                            }
 
-                            self.events.on_program_streams();
+                            self.pmt = Some(pmt);
                         }
                     }
                 }
 
-                if let Some(stream_type) = self.streams.get(&header.pid) {
+                if self.has_stream(&header.pid) {
                     if header.adaptation_control.has_payload() {
 
                         if header.pusi {

@@ -1,4 +1,4 @@
-use mpegts::demuxer::Demuxer;
+use mpegts::{demuxer::Demuxer, pid::Pid, stream_type::StreamType};
 
 
 
@@ -14,8 +14,8 @@ pub struct IngestDemuxer {
 }
 
 impl mpegts::DemuxerEvents for IngestDemuxer {
-    fn on_program_streams(&mut self) {
-        log::info!("New stream found");
+    fn on_program_streams(&mut self, pid: &Pid, stream_type: &StreamType) {
+        log::info!("New stream found: {:?}, type:{:?}", pid, stream_type);
     }
 
     fn on_video_data(&mut self) {
@@ -27,7 +27,7 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
     }
 
     fn on_pcr(&mut self) {
-        
+
     }
 }
 
