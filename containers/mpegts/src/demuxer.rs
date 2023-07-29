@@ -13,6 +13,9 @@ pub struct Demuxer<T> where T: DemuxerEvents {
     pcr_pid: Option<Pid>,
     streams: HashMap<Pid, StreamType>,
     pmt: Option<PMT>,
+
+    continutiy_check: HashMap<Pid, u8>,
+
     events: T,
 }
 
@@ -27,6 +30,8 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
             pmt: None,
 
+            continutiy_check: HashMap::new(),
+
             events,
         }
     }
@@ -36,6 +41,27 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
             return pmt.streams.contains_key(pid);
         }
         false
+    }
+
+    pub fn check_continutiy(&mut self, packet_header: &PacketHeader) {
+        if self.continutiy_check.contains_key(&packet_header.pid) {
+
+            let last_counter = self.continutiy_check.get_mut(&packet_header.pid).unwrap();
+
+            let mut expected_count = 0;
+
+            if *last_counter < 0x0f {
+                expected_count = *last_counter + 1;
+            }
+
+            if packet_header.continuity_counter != expected_count {
+                log::debug!("An out-of-order packet was received.(PID : {:?} Expected : {}, Received : {}", packet_header.pid, expected_count, packet_header.continuity_counter);
+            }
+
+            *last_counter = expected_count;
+        } else {
+            self.continutiy_check.insert(packet_header.pid, packet_header.continuity_counter);
+        }
     }
 
     pub fn push(&mut self, buf: &[u8]) ->Result<()> {
@@ -98,15 +124,21 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                 }
 
                 if self.has_stream(&header.pid) {
+                    self.check_continutiy(&header);
+
                     if header.adaptation_control.has_payload() {
 
                         if header.pusi {
                             let pes_header = PesHeader::try_new(&mut reader)?;
-                            println!("pes_header={:?}", pes_header);
+                            // println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
+                        } else {
+                            // println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
                         }
                         
-
+                    
                     }
+
+                    
                 }
             }
         Ok(())

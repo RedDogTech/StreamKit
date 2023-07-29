@@ -36,7 +36,7 @@ impl AdaptationControl {
 pub struct PacketHeader {
     pub pid: Pid,
     pub pusi: bool,
-    pub counter: u8,
+    pub continuity_counter: u8,
     pub adaptation_control: AdaptationControl,
     pub pcr_flag: bool,
     pub header_size: i64,
@@ -76,7 +76,7 @@ impl PacketHeader {
         Ok(PacketHeader {
             pid,
             pusi: (second_byte & 0x40) != 0,
-            counter: forth_byte & 0xf,
+            continuity_counter: forth_byte & 0xf,
             adaptation_control,
             pcr_flag,
             header_size,
