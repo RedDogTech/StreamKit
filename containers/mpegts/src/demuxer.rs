@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::{PacketHeader, AdaptationControl}, stream_type::StreamType};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::{PacketHeader, AdaptationControl}, stream_type::StreamType, DemuxerEvents};
 use byteorder::{ReadBytesExt, BigEndian};
 use anyhow::{Result, bail};
 use bytes::Bytes;
@@ -7,11 +7,13 @@ use bytes::Bytes;
 pub const SYNC_BYTE: u8 = 0x47;
 pub const SIZE: usize = 188;
 
-pub struct Demux {
+pub struct Demuxer<T> where T: DemuxerEvents {
     last_counter: u8,
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
     streams: HashMap<Pid, StreamType>,
+
+    events: T,
 }
 
 pub struct Packet {
@@ -21,14 +23,16 @@ pub struct Packet {
     stream_type: StreamType,
 }
 
-impl Demux {
+impl<T> Demuxer<T> where T: DemuxerEvents {
 
-    pub fn new() -> Demux {
-        Demux {
+    pub fn new(events: T) -> Demuxer<T> {
+        Demuxer {
             last_counter: 0,
             pmt_pid: None,
             pcr_pid: None,
             streams: HashMap::new(),
+
+            events,
         }
     }
 
@@ -83,6 +87,8 @@ impl Demux {
 
                         if self.streams.is_empty() {
                             self.streams = pmt.streams;
+
+                            self.events.on_program_streams();
                         }
                     }
                 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{BytesMut, BufMut};
-use stream_kit::{Opt, session::SessionManager};
+use stream_kit::{Opt, session::SessionManager, mpegts_ingest};
 use srt_rs::log as srt_log;
 use log::LevelFilter;
 use stream_kit::routes;
@@ -64,7 +64,7 @@ async fn run_srt(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
 
                 tokio::task::spawn(async move {
                     let mut buf = [0; 1316];
-                    let mut demux = mpegts::demux::Demux::new();
+                    let mut demux =  mpegts_ingest::create_demux();
 
                     while let Ok((size, _)) = peer.recvmsg2(&mut buf).await {
                         let _ = demux.push(&mut buf[..size]);
