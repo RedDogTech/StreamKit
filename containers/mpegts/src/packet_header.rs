@@ -38,7 +38,7 @@ pub struct PacketHeader {
     pub pusi: bool,
     pub continuity_counter: u8,
     pub adaptation_control: AdaptationControl,
-    pub pcr_flag: bool,
+    pub pcr: Option<u64>,
     pub header_size: i64,
 }
 
@@ -54,21 +54,27 @@ impl PacketHeader {
         let forth_byte = reader.read_u8()?;
 
         let adaptation_control = AdaptationControl::from((forth_byte & 0x30)>>4);
-        let mut pcr_flag = false;
+        let mut pcr = None;
 
         if adaptation_control == AdaptationControl::AdaptationFieldOnly || adaptation_control == AdaptationControl::AdaptationFieldAndPayload
         {
             //TODO: build reader for this, at the moment we can
             //      greedly ginore all of it but move the reader
             //      pointer forward.
-            let adapt_length = reader.read_u8()? as i64;
-            header_size += 1;
+            let mut adapt_length = reader.read_u8()? as i64;
 
             if adapt_length != 0 {
                 let adapt_fields = reader.read_u8()?;
-                pcr_flag = (adapt_fields >> 4) & 0x01 != 0;
+                adapt_length -= 1;
 
-                reader.seek(SeekFrom::Current(adapt_length - 1))?;
+                let pcr_flag = (adapt_fields >> 4) & 0x01 != 0;
+
+                if pcr_flag {
+                    pcr = Some(Self::read_pcr(reader)?);
+                    adapt_length -= 6;
+                } 
+
+                reader.seek(SeekFrom::Current(adapt_length))?;
                 header_size += adapt_length;
             }
         }
@@ -78,8 +84,33 @@ impl PacketHeader {
             pusi: (second_byte & 0x40) != 0,
             continuity_counter: forth_byte & 0xf,
             adaptation_control,
-            pcr_flag,
+            pcr,
             header_size,
         })
     }
+
+
+    fn read_pcr(reader: &mut Cursor<Bytes>) -> Result<u64> {
+        let mut pcr :u64 = 0;
+        let mut val :u64 = reader.read_u8()? as u64;
+
+        pcr |= (val << 25) & 0x1FE000000;
+    
+        val = reader.read_u8()? as u64;
+        pcr |= (val << 17) & 0x1FE0000;
+    
+        val = reader.read_u8()? as u64;
+        pcr |= (val << 9) & 0x1FE00;
+    
+        val = reader.read_u8()? as u64;
+        pcr |= (val << 1) & 0x1FE;
+    
+        val = reader.read_u8()? as u64;
+        pcr |= ((val >> 7) & 0x01);
+    
+        let _= reader.read_u8()?;
+    
+        Ok(pcr)
+    }
+
 }
