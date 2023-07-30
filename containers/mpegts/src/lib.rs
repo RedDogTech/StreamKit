@@ -13,7 +13,7 @@ pub trait DemuxerEvents {
     fn on_program_streams(&mut self, pid: &Pid, stream_type: &StreamType) {}
     fn on_video_data(&mut self) {}
     fn on_audio_data(&mut self) {}
-    fn on_pcr(&mut self) {}
+    fn on_pcr(&mut self, clock: u64) {}
 }
 
 pub struct Packet {

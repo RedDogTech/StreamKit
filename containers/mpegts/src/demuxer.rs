@@ -1,17 +1,14 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::{PacketHeader, AdaptationControl}, stream_type::StreamType, DemuxerEvents};
-use byteorder::{ReadBytesExt, BigEndian};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::PacketHeader, DemuxerEvents};
+use byteorder::ReadBytesExt;
 use anyhow::{Result, bail};
-use bytes::Bytes;
 
 pub const SYNC_BYTE: u8 = 0x47;
 pub const SIZE: usize = 188;
 
 pub struct Demuxer<T> where T: DemuxerEvents {
-    last_counter: u8,
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
-    streams: HashMap<Pid, StreamType>,
     pmt: Option<PMT>,
 
     continutiy_check: HashMap<Pid, u8>,
@@ -23,10 +20,8 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
     pub fn new(events: T) -> Demuxer<T> {
         Demuxer {
-            last_counter: 0,
             pmt_pid: None,
             pcr_pid: None,
-            streams: HashMap::new(),
 
             pmt: None,
 
@@ -78,14 +73,9 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
                 let header = PacketHeader::try_new(&mut reader)?;
 
-                // if header.counter != (self.last_counter + 1) {
-                //     log::debug!("Incorrect continutiy expected: {} got {}", (self.last_counter + 1), header.counter);
-                // }
-                // if (self.last_counter + 1) == 15 {
-                //     self.last_counter = 0;
-                // } else {
-                //     self.last_counter = header.counter;
-                // }
+                if let Some(pcr) = header.pcr {
+                    self.events.on_pcr(pcr);
+                }
 
                 if header.pid == Pid::PAT {
                     if header.adaptation_control.has_payload() {
@@ -130,9 +120,9 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
                         if header.pusi {
                             let pes_header = PesHeader::try_new(&mut reader)?;
-                            // println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
+                            println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
                         } else {
-                            // println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
+                            println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
                         }
                         
                     

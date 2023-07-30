@@ -26,8 +26,8 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
 
     }
 
-    fn on_pcr(&mut self) {
-
+    fn on_pcr(&mut self, clock: u64) {
+        log::info!("New clock {clock}");
     }
 }
 

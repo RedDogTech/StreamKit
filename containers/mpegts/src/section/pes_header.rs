@@ -51,9 +51,7 @@ impl PesHeader {
         let escr_flag = (flags >> 5) & 0x01;
         let pts_dts_flags = (flags >> 6) & 0x03;
 
-        let optional_remaining = reader.read_u8()? as usize;
-
-        header_size += optional_remaining;
+        let mut optional_remaining = reader.read_u8()? as usize;
 
         let mut pts = None;
         let mut dts = None;
@@ -61,10 +59,15 @@ impl PesHeader {
         if pts_dts_flags == 2 || pts_dts_flags == 3
 		{
             pts = Some(Self::read_pts(reader)?);
+            optional_remaining -= 5;
             if pts_dts_flags == 3 {
                 dts = Some(Self::read_pts(reader)?);
+                optional_remaining -= 5;
             }
         }
+
+
+        header_size += optional_remaining;
 
         Ok(PesHeader {
             header_size,
@@ -95,7 +98,7 @@ impl PesHeader {
 }
 
 
-//#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use bytes::Bytes;
     use std::io::Cursor;
