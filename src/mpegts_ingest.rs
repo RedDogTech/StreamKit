@@ -41,8 +41,6 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
             let pcr_diff = (prc_value - self.latest_pcr_value + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64;
             self.latest_pcr_timestamp_90khz += pcr_diff as u64;
             self.latest_pcr_datetime += Duration::seconds_f64(pcr_diff as f64 / mpegts::HZ as f64);
-
-            println!("{}", self.latest_pcr_datetime);
         }
         
         self.first_pcr = true;
