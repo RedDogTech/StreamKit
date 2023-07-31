@@ -71,7 +71,7 @@ impl PacketHeader {
 
                 if pcr_flag {
                     pcr = Some(Self::read_pcr(reader)?);
-                    adapt_length -= 6;
+                    adapt_length -= 7;
                 } 
 
                 reader.seek(SeekFrom::Current(adapt_length))?;
@@ -108,7 +108,7 @@ impl PacketHeader {
         val = reader.read_u8()? as u64;
         pcr |= ((val >> 7) & 0x01);
     
-        let _= reader.read_u8()?;
+        let _ext = (reader.read_u8()? as u16 & 0b1) << 8 | reader.read_u8()? as u16;
     
         Ok(pcr)
     }

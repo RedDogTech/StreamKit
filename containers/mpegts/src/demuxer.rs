@@ -120,9 +120,9 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
                         if header.pusi {
                             let pes_header = PesHeader::try_new(&mut reader)?;
-                            println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
+                            // println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
                         } else {
-                            println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
+                            // println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
                         }
                         
                     

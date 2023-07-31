@@ -5,6 +5,10 @@ use log::LevelFilter;
 use stream_kit::routes;
 use tokio::sync::Mutex;
 
+
+const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+const GIT_SHA: &str = env!("GIT_SHA");
+
 fn setup_logging(opt: &Opt) -> anyhow::Result<()> {
     let mut log_builder = env_logger::Builder::new();
     log_builder.parse_filters(&opt.log_level.to_string());
@@ -81,7 +85,11 @@ async fn run_srt(store: Arc<Mutex<SessionManager>>) -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     let (opt, _) = Opt::try_build()?;
 
+    println!("{}", u64::pow(3, 22));
+
     setup_logging(&opt)?;
+    log::info!("Starting StreamKit {{ \"Version\": \"{CARGO_PKG_VERSION}\", \"GitSha\": \"{GIT_SHA}\" }}");
+
     setup_srt(&opt)?;
 
     let store = Arc::new(Mutex::new(SessionManager::new()));

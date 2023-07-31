@@ -108,6 +108,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c7d0618f0e0b7e8ff11427422b64564d5fb0be1940354bfe2e0529b18a9d9b8"
 
 [[package]]
+name = "approx"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08abcc3b4e9339e33a3d0a5ed15d84a687350c05689d825e0f6655eef9e76a94"
+
+[[package]]
 name = "async-trait"
 version = "0.1.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -411,6 +417,18 @@ dependencies = [
  "bytemuck",
  "half",
  "typenum",
+]
+
+[[package]]
+name = "float_duration"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aed8e3182af8f7f1227d88fe6203a83e7a0cff36a8f0af7195f11449217480e"
+dependencies = [
+ "approx",
+ "chrono",
+ "serde",
+ "time",
 ]
 
 [[package]]
@@ -1205,9 +1223,11 @@ dependencies = [
  "axum",
  "bytes",
  "bytesio",
+ "chrono",
  "clap",
  "env_logger",
  "exp_golomb",
+ "float_duration",
  "h264",
  "h265",
  "lazy_static",
