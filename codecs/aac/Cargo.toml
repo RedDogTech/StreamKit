@@ -6,8 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+log = "0.4"
 bytes = "1"
 byteorder = "1"
+thiserror = "1"
 num-traits = "0"
 num-derive = "0"
 bytesio = { path = "../../core/bytesio" }
+common = { path = "../../core/common" }

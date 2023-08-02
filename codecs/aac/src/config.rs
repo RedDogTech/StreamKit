@@ -1,154 +1,147 @@
-use std::io;
+use {
+    super::AacError,
+    bytes::Buf,
+    std::{convert::TryFrom, io::Cursor},
+};
 
-use bytes::Bytes;
-use bytesio::{bit_reader::BitReader, bit_writer::BitWriter};
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
-
-#[derive(Debug, Clone, PartialEq)]
-/// Audio Specific Config
-/// ISO/IEC 14496-3:2019(E) - 1.6
-pub struct AudioSpecificConfig {
-    pub audio_object_type: AudioObjectType,
-    pub sampling_frequency: u32,
-    pub channel_configuration: u8,
-    pub data: Bytes,
-}
-
+// Bits | Description
+// ---- | -----------
+// 5    | Audio object type
+// 4    | Sampling frequency index
+// 4    | Channel configuration
+// AOT specific section
+// 1    | Frame length flag
+// 1    | Depends on core coder
+// 1    | Extension flag
+///
 #[derive(Debug, Clone, PartialEq, Copy, Eq)]
-/// SBR Audio Object Type
-/// ISO/IEC 14496-3:2019(E) - 1.5.1.2.6
+pub struct AudioSpecificConfiguration {
+    pub object_type: AudioObjectType,
+    pub sampling_frequency_index: SamplingFrequencyIndex,
+    pub sampling_frequency: Option<u32>,
+    pub channel_configuration: ChannelConfiguration,
+    pub frame_length_flag: bool,
+    pub depends_on_core_coder: bool,
+    pub extension_flag: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SamplingFrequencyIndex(u8);
+
+impl From<SamplingFrequencyIndex> for u8 {
+    fn from(val: SamplingFrequencyIndex) -> Self {
+        val.0
+    }
+}
+
+impl TryFrom<u8> for SamplingFrequencyIndex {
+    type Error = AacError;
+
+    fn try_from(val: u8) -> Result<Self, AacError> {
+        match val {
+            0..=12 | 15 => Ok(Self(val)),
+            _ => Err(AacError::UnsupportedFrequencyIndex(val)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChannelConfiguration(u8);
+
+impl From<ChannelConfiguration> for u8 {
+    fn from(val: ChannelConfiguration) -> Self {
+        val.0
+    }
+}
+
+impl TryFrom<u8> for ChannelConfiguration {
+    type Error = AacError;
+
+    fn try_from(val: u8) -> Result<Self, AacError> {
+        match val {
+            0..=7 => Ok(Self(val)),
+            _ => Err(AacError::UnsupportedChannelConfiguration(val)),
+        }
+    }
+}
+
+// See [MPEG-4 Audio Object Types][audio_object_types]
+//
+// [audio_object_types]: https://en.wikipedia.org/wiki/MPEG-4_Part_3#MPEG-4_Audio_Object_Types
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AudioObjectType {
-    AacMain,
-    AacLowComplexity,
-    Unknown(u16),
+    Reserved = 0,
+    AacMain = 1,
+    AacLowComplexity = 2,
+    AacScalableSampleRate = 3,
+    AacLongTermPrediction = 4,
 }
 
-impl From<u16> for AudioObjectType {
-    fn from(value: u16) -> Self {
-        match value {
-            1 => AudioObjectType::AacMain,
-            2 => AudioObjectType::AacLowComplexity,
-            _ => AudioObjectType::Unknown(value),
-        }
+impl Default for AudioObjectType {
+    fn default() -> Self {
+        Self::Reserved
     }
 }
 
-impl From<AudioObjectType> for u16 {
-    fn from(value: AudioObjectType) -> Self {
-        match value {
-            AudioObjectType::AacMain => 1,
-            AudioObjectType::AacLowComplexity => 2,
-            AudioObjectType::Unknown(value) => value,
-        }
-    }
-}
+impl TryFrom<u16> for AudioObjectType {
+    type Error = AacError;
 
-#[derive(FromPrimitive)]
-#[repr(u8)]
-/// Sampling Frequency Index
-/// ISO/IEC 14496-3:2019(E) - 1.6.2.4 (Table 1.22)
-pub enum SampleFrequencyIndex {
-    Freq96000 = 0x0,
-    Freq88200 = 0x1,
-    Freq64000 = 0x2,
-    Freq48000 = 0x3,
-    Freq44100 = 0x4,
-    Freq32000 = 0x5,
-    Freq24000 = 0x6,
-    Freq22050 = 0x7,
-    Freq16000 = 0x8,
-    Freq12000 = 0x9,
-    Freq11025 = 0xA,
-    Freq8000 = 0xB,
-    Freq7350 = 0xC,
-    FreqReserved = 0xD,
-    FreqReserved2 = 0xE,
-    FreqEscape = 0xF,
-}
-
-impl SampleFrequencyIndex {
-    pub fn to_freq(&self) -> u32 {
-        match self {
-            SampleFrequencyIndex::Freq96000 => 96000,
-            SampleFrequencyIndex::Freq88200 => 88200,
-            SampleFrequencyIndex::Freq64000 => 64000,
-            SampleFrequencyIndex::Freq48000 => 48000,
-            SampleFrequencyIndex::Freq44100 => 44100,
-            SampleFrequencyIndex::Freq32000 => 32000,
-            SampleFrequencyIndex::Freq24000 => 24000,
-            SampleFrequencyIndex::Freq22050 => 22050,
-            SampleFrequencyIndex::Freq16000 => 16000,
-            SampleFrequencyIndex::Freq12000 => 12000,
-            SampleFrequencyIndex::Freq11025 => 11025,
-            SampleFrequencyIndex::Freq8000 => 8000,
-            SampleFrequencyIndex::Freq7350 => 7350,
-            SampleFrequencyIndex::FreqReserved => 0,
-            SampleFrequencyIndex::FreqReserved2 => 0,
-            SampleFrequencyIndex::FreqEscape => 0,
-        }
-    }
-}
-
-impl AudioSpecificConfig {
-    pub fn parse(data: Bytes) -> io::Result<Self> {
-        let mut bitreader = BitReader::from(data);
-
-
-        let mut audio_object_type = bitreader.read_bits(5)? as u16;
-        if audio_object_type == 31 {
-            audio_object_type = 32 + bitreader.read_bits(6)? as u16;
-        }
-
-        let sampling_frequency_index = SampleFrequencyIndex::from_u8(bitreader.read_bits(4)? as u8)
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Invalid sampling frequency index",
-                )
-            })?;
-        
-        let sampling_frequency = match sampling_frequency_index {
-            SampleFrequencyIndex::FreqEscape => bitreader.read_bits(24)? as u32,
-            _ => sampling_frequency_index.to_freq(),
-        };
-
-        let channel_configuration = bitreader.read_bits(4)? as u8;
-
-        Ok(Self {
-            audio_object_type: audio_object_type.into(),
-            sampling_frequency,
-            channel_configuration,
-            data: bitreader.into_inner().into_inner(),
+    fn try_from(value: u16) -> Result<Self, AacError> {
+        Ok(match value {
+            1 => Self::AacMain,
+            2 => Self::AacLowComplexity,
+            3 => Self::AacScalableSampleRate,
+            4 => Self::AacLongTermPrediction,
+            0 => Self::Reserved,
+            _ => return Err(AacError::UnsupportedAudioFormat),
         })
     }
+}
 
-    pub fn parse_adts(data: Bytes) -> io::Result<Self> {
-        let mut bitreader = BitReader::from(data);
+impl Into<u16> for AudioObjectType {
+    fn into(self) -> u16 {
+        match self {
+            Self::AacMain => 1,
+            Self::AacLowComplexity => 2,
+            Self::AacScalableSampleRate => 3,
+            Self::AacLongTermPrediction => 4,
+            Self::Reserved => 0,
+        }
+    }
+}
 
-        let sync_word = bitreader.read_bits(12)? as u16;
-        assert_eq!(sync_word, 0xfff);
+impl TryFrom<&[u8]> for AudioSpecificConfiguration {
+    type Error = AacError;
 
-        let _ = bitreader.read_bits(4)?;
-        let audio_object_type = bitreader.read_bits(2)? as u16 + 1;
+    fn try_from(val: &[u8]) -> Result<Self, Self::Error> {
+        if val.len() < 2 {
+            return Err(AacError::NotEnoughData("AAC audio specific config"));
+        }
 
-        let sampling_frequency = bitreader.read_bits(4)? as u8;
+        let mut buf = Cursor::new(val);
 
-        let _ = bitreader.read_bit()?;
+        let header_a = buf.get_u8();
+        let header_b = buf.get_u8();
 
-        let channel_configuration = bitreader.read_bits(3)? as u8;
+        let object_type = AudioObjectType::try_from((header_a & 0xF8) as u16 >> 3)?;
 
-        //Write ACS for the mpa1 box
-        let mut bit_writer = BitWriter::default();
-        bit_writer.write_bits(audio_object_type.into(), 5)?;
-        bit_writer.write_bits(sampling_frequency.into(), 4)?;
-        bit_writer.write_bits(channel_configuration.into(), 4)?;
+        let sf_idx = ((header_a & 0x07) << 1) | (header_b >> 7);
+        let sampling_frequency_index = SamplingFrequencyIndex::try_from(sf_idx)?;
+
+        let channel_configuration = ChannelConfiguration::try_from((header_b >> 3) & 0x0F)?;
+        let frame_length_flag = (header_b & 0x04) == 0x04;
+        let depends_on_core_coder = (header_b & 0x02) == 0x02;
+        let extension_flag = (header_b & 0x01) == 0x01;
 
         Ok(Self {
-            audio_object_type: audio_object_type.into(),
-            sampling_frequency: SampleFrequencyIndex::from_u8(sampling_frequency).unwrap().to_freq(),
+            object_type,
+            sampling_frequency_index,
+            sampling_frequency: None,
             channel_configuration,
-            data: bit_writer.into_inner().into(),
+            frame_length_flag,
+            depends_on_core_coder,
+            extension_flag,
         })
     }
 }
