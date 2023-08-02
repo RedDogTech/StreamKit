@@ -5,6 +5,7 @@ use byteorder::{ReadBytesExt, BigEndian};
 
 use crate::{pid::Pid, stream_type::StreamType};
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct PMT {
     table_id: u8,

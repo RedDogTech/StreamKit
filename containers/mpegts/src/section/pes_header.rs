@@ -1,4 +1,4 @@
-use std::{io::{Cursor, Seek, SeekFrom}, option};
+use std::io::{Cursor, Seek, SeekFrom};
 use bytes::Bytes;
 use anyhow::Result;
 use byteorder::{ReadBytesExt, BigEndian};
@@ -21,6 +21,7 @@ impl From<u8> for StreamId {
 }
 
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct PesHeader {
     header_size: usize,
@@ -76,6 +77,9 @@ impl PesHeader {
 
     fn read_pts(reader: &mut Cursor<Bytes>)-> Result<u64>{
         let mut pts: u64 = 0;
+
+        // TODO: Refactor to remove using this
+        #[allow(unused_assignments)]
         let mut val: u16 = 0;
 
         val = reader.read_u8()? as u16;

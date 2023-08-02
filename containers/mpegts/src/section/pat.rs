@@ -5,12 +5,14 @@ use byteorder::{ReadBytesExt, BigEndian};
 
 use crate::pid::Pid;
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct Program {
     program_number: u16,
     pub program_pid: Pid,
 }
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub struct PAT {
     table_id: u8,
