@@ -3,7 +3,7 @@ pub mod metrics;
 pub mod routes;
 pub mod hls;
 pub mod session;
-pub mod store;
+pub mod segment_store;
 pub mod fmp4;
 pub mod mpegts_ingest;
 

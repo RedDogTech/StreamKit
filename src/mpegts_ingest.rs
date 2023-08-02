@@ -1,11 +1,22 @@
+use aac::AacCoder;
+use bytes::Bytes;
+use common::FormatReader;
+use h264::H264Coder;
 use mpegts::{demuxer::Demuxer, pid::Pid, stream_type::StreamType};
 use time::{OffsetDateTime, Duration};
+
+use crate::segment_store::SegmentStore;
 
 pub struct IngestDemuxer {
     latest_pcr_value: i64,
     latest_pcr_timestamp_90khz: u64,
     latest_pcr_datetime:  OffsetDateTime,
     first_pcr: bool,
+
+    segment_store: SegmentStore,
+
+    h264_coder: H264Coder,
+    aac_coder: AacCoder,
 }
 
 impl Default for IngestDemuxer {
@@ -15,6 +26,11 @@ impl Default for IngestDemuxer {
             latest_pcr_value: 0,
             latest_pcr_timestamp_90khz: 0,
             latest_pcr_datetime: (OffsetDateTime::now_utc()),
+
+            segment_store: SegmentStore::default(),
+
+            h264_coder: H264Coder::new(),
+            aac_coder: AacCoder::new(),
         }
     }
 }
@@ -24,16 +40,30 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
         log::info!("New stream found: {:?}, type:{:?}", pid, stream_type);
     }
 
-    fn on_video_data(&mut self) {
+    fn on_video_data(&mut self, data: Bytes, pts: Option<u64>, dts: Option<u64>) {        
+        let video = match self.h264_coder.read_format(h264::AnnexB, &data).unwrap() {
+            Some(avc) => println!("{:?}", avc),
+            None => {},
+        };
 
+        if let Some(idr) = &self.h264_coder.dcr {
+            println!("{:?}", idr);
+
+            if let Ok((foo, bar)) = self.segment_store.init_video(idr.clone()) {
+                println!("{:?}", foo);
+                println!("{:?}", bar);
+            }
+        }
     }
 
-    fn on_audio_data(&mut self) {
-
+    fn on_audio_data(&mut self, data: Bytes, pts: Option<u64>) {
+        // let audio = match self.aac_coder.read_format(aac::AudioDataTransportStream, &data).unwrap() {
+        //     Some(aac) => println!("{:?}", aac),
+        //     None => {},
+        // };
     }
 
     fn on_pcr(&mut self, pcr: u64) {
-
         let prc_value: i64 = (pcr as i64 - mpegts::HZ as i64 + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64;
         
         // FIXME: this could be better :(

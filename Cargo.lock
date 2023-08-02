@@ -9,8 +9,11 @@ dependencies = [
  "byteorder",
  "bytes",
  "bytesio",
+ "common",
+ "log",
  "num-derive",
  "num-traits",
+ "thiserror",
 ]
 
 [[package]]
@@ -342,6 +345,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
+name = "common"
+version = "0.1.0"
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -533,10 +540,14 @@ checksum = "b6c80984affa11d98d1b88b66ac8853f143217b399d3c74116778ff8fdb4ed2e"
 name = "h264"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "byteorder",
  "bytes",
  "bytesio",
+ "common",
  "exp_golomb",
+ "log",
+ "thiserror",
 ]
 
 [[package]]
@@ -1212,6 +1223,7 @@ dependencies = [
  "bytes",
  "bytesio",
  "clap",
+ "common",
  "env_logger",
  "exp_golomb",
  "h264",
