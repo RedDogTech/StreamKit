@@ -19,7 +19,7 @@ impl SegmentStore {
 
     pub fn init_video(&self, config: DecoderConfigurationRecord) -> Result<(DynBox, Sps)> {
 
-        let sps_data= config.sps[0];
+        let sps_data= config.sps[0].clone();
         let sps = h264::sps::Sps::parse(&sps_data.payload())?;
 
         let colr = sps.color_config.as_ref().map(|color_config| {
