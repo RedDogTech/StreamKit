@@ -1,99 +1,86 @@
 use std::io::{self, Write};
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{Buf, Bytes};
-use bytesio::{bit_writer::BitWriter, bytes_reader::BytesCursor};
+use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
+use bytes::Bytes;
+use bytesio::bit_writer::BitWriter;
 
+use {
+    super::{nal, AvcError},
+    bytes::{Buf, BufMut},
+    std::{convert::TryFrom, io::Cursor},
+};
+
+// Bits | Name
+// ---- | ----
+// 8    | Version
+// 8    | Profile Indication
+// 8    | Profile Compatability
+// 8    | Level Indication
+// 6    | Reserved
+// 2    | NALU Length
+// 3    | Reserved
+// 5    | SPS Count
+// 16   | SPS Length
+// var  | SPS
+// 8    | PPS Count
+// 16   | PPS Length
+// var  | PPS
 #[derive(Debug, Clone, PartialEq)]
-/// AVC (H.264) Decoder Configuration Record
-/// ISO/IEC 14496-15:2022(E) - 5.3.2.1.2
-pub struct AVCDecoderConfigurationRecord {
-    pub configuration_version: u8,
+pub struct DecoderConfigurationRecord {
+    pub version: u8,
     pub profile_indication: u8,
-    pub profile_compatibility: u8,
+    pub profile_compatability: u8,
     pub level_indication: u8,
-    pub length_size_minus_one: u8,
-    pub sps: Vec<Bytes>,
-    pub pps: Vec<Bytes>,
-    pub extended_config: Option<AvccExtendedConfig>,
+    pub nalu_size: u8,
+    pub sps: Vec<nal::Unit>,
+    pub pps: Vec<nal::Unit>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-/// AVC (H.264) Extended Configuration
-/// ISO/IEC 14496-15:2022(E) - 5.3.2.1.2
-pub struct AvccExtendedConfig {
-    pub chroma_format: u8,
-    pub bit_depth_luma_minus8: u8,
-    pub bit_depth_chroma_minus8: u8,
-    pub sequence_parameter_set_ext: Vec<Bytes>,
+impl Default for DecoderConfigurationRecord {
+    fn default() -> Self {
+        Self {
+            version: 1u8,
+            profile_indication: 0u8,
+            profile_compatability: 0u8,
+            level_indication: 0u8,
+            nalu_size: 4u8,
+            sps: vec![],
+            pps: vec![],
+        }
+    }
 }
 
-impl AVCDecoderConfigurationRecord {
+impl DecoderConfigurationRecord {
+    pub fn mux<T: io::Write>(&self, writer: &mut T) -> io::Result<()> {
+        let mut bit_writer = BitWriter::default();
+
+        bit_writer.write_u8(self.version)?;
+        bit_writer.write_u8(self.profile_indication)?;
+        bit_writer.write_u8(self.profile_compatability)?;
+        bit_writer.write_u8(self.level_indication)?;
+        bit_writer.write_bits(0b111111, 6)?;
+
+        bit_writer.write_bits(self.sps.len() as u64, 5)?;
+
+        for sps in &self.sps {
+            bit_writer.write_u16::<BigEndian>(sps.payload().len() as u16)?;
+            bit_writer.write_all(&sps.payload())?;
+        }
+
+        bit_writer.write_bits(self.pps.len() as u64, 8)?;
+
+        for pps in &self.pps {
+            bit_writer.write_u16::<BigEndian>(pps.payload().len() as u16)?;
+            bit_writer.write_all(&pps.payload())?;
+        }
+
+        writer.write_all(&bit_writer.into_inner())?;
+        Ok(())
+    }
+
+    //TODO:: Remove
     pub fn demux(reader: &mut io::Cursor<Bytes>) -> io::Result<Self> {
-        let configuration_version = reader.read_u8()?;
-        let profile_indication = reader.read_u8()?;
-        let profile_compatibility = reader.read_u8()?;
-        let level_indication = reader.read_u8()?;
-        let length_size_minus_one = reader.read_u8()? & 0b00000011;
-        let num_of_sequence_parameter_sets = reader.read_u8()? & 0b00011111;
-
-        let mut sps = Vec::with_capacity(num_of_sequence_parameter_sets as usize);
-        for _ in 0..num_of_sequence_parameter_sets {
-            let sps_length = reader.read_u16::<BigEndian>()?;
-            let sps_data = reader.read_slice(sps_length as usize)?;
-            sps.push(sps_data);
-        }
-
-        let num_of_picture_parameter_sets = reader.read_u8()?;
-        let mut pps = Vec::with_capacity(num_of_picture_parameter_sets as usize);
-        for _ in 0..num_of_picture_parameter_sets {
-            let pps_length = reader.read_u16::<BigEndian>()?;
-            let pps_data = reader.read_slice(pps_length as usize)?;
-            pps.push(pps_data);
-        }
-
-        // It turns out that sometimes the extended config is not present, even though the avc_profile_indication
-        // is not 66, 77 or 88. We need to be lenient here on decoding.
-        let extended_config = match profile_indication {
-            66 | 77 | 88 => None,
-            _ => {
-                if reader.has_remaining() {
-                    let chroma_format = reader.read_u8()? & 0b00000011; // 2 bits (6 bits reserved)
-                    let bit_depth_luma_minus8 = reader.read_u8()? & 0b00000111; // 3 bits (5 bits reserved)
-                    let bit_depth_chroma_minus8 = reader.read_u8()? & 0b00000111; // 3 bits (5 bits reserved)
-                    let number_of_sequence_parameter_set_ext = reader.read_u8()?; // 8 bits
-
-                    let mut sequence_parameter_set_ext =
-                        Vec::with_capacity(number_of_sequence_parameter_set_ext as usize);
-                    for _ in 0..number_of_sequence_parameter_set_ext {
-                        let sps_ext_length = reader.read_u16::<BigEndian>()?;
-                        let sps_ext_data = reader.read_slice(sps_ext_length as usize)?;
-                        sequence_parameter_set_ext.push(sps_ext_data);
-                    }
-
-                    Some(AvccExtendedConfig {
-                        chroma_format,
-                        bit_depth_luma_minus8,
-                        bit_depth_chroma_minus8,
-                        sequence_parameter_set_ext,
-                    })
-                } else {
-                    // No extended config present even though avc_profile_indication is not 66, 77 or 88
-                    None
-                }
-            }
-        };
-
-        Ok(Self {
-            configuration_version,
-            profile_indication,
-            profile_compatibility,
-            level_indication,
-            length_size_minus_one,
-            sps,
-            pps,
-            extended_config,
-        })
+        Ok(DecoderConfigurationRecord::try_from(reader.chunk()).unwrap())
     }
 
     pub fn size(&self) -> u64 {
@@ -102,71 +89,118 @@ impl AVCDecoderConfigurationRecord {
         + 1 // profile_compatibility
         + 1 // avc_level_indication
         + 1 // length_size_minus_one
-        + 1 // num_of_sequence_parameter_sets (5 bits reserved, 3 bits)
+        + 1
         + self.sps.iter().map(|sps| {
             2 // sps_length
-            + sps.len() as u64
+            + sps.payload().len() as u64
         }).sum::<u64>() // sps
         + 1 // num_of_picture_parameter_sets
         + self.pps.iter().map(|pps| {
             2 // pps_length
-            + pps.len() as u64
+            + pps.payload().len() as u64
         }).sum::<u64>() // pps
-        + match &self.extended_config {
-            Some(config) => {
-                1 // chroma_format (6 bits reserved, 2 bits)
-                + 1 // bit_depth_luma_minus8 (5 bits reserved, 3 bits)
-                + 1 // bit_depth_chroma_minus8 (5 bits reserved, 3 bits)
-                + 1 // number_of_sequence_parameter_set_ext
-                + config.sequence_parameter_set_ext.iter().map(|sps_ext| {
-                    2 // sps_ext_length
-                    + sps_ext.len() as u64
-                }).sum::<u64>() // sps_ext
-            }
-            None => 0,
-        }
     }
 
-    pub fn mux<T: io::Write>(&self, writer: &mut T) -> io::Result<()> {
-        let mut bit_writer = BitWriter::default();
-
-        bit_writer.write_u8(self.configuration_version)?;
-        bit_writer.write_u8(self.profile_indication)?;
-        bit_writer.write_u8(self.profile_compatibility)?;
-        bit_writer.write_u8(self.level_indication)?;
-        bit_writer.write_bits(0b111111, 6)?;
-        bit_writer.write_bits(self.length_size_minus_one as u64, 2)?;
-        bit_writer.write_bits(0b111, 3)?;
-
-        bit_writer.write_bits(self.sps.len() as u64, 5)?;
-        for sps in &self.sps {
-            bit_writer.write_u16::<BigEndian>(sps.len() as u16)?;
-            bit_writer.write_all(sps)?;
-        }
-
-        bit_writer.write_bits(self.pps.len() as u64, 8)?;
-        for pps in &self.pps {
-            bit_writer.write_u16::<BigEndian>(pps.len() as u16)?;
-            bit_writer.write_all(pps)?;
-        }
-
-        if let Some(config) = &self.extended_config {
-            bit_writer.write_bits(0b111111, 6)?;
-            bit_writer.write_bits(config.chroma_format as u64, 2)?;
-            bit_writer.write_bits(0b11111, 5)?;
-            bit_writer.write_bits(config.bit_depth_luma_minus8 as u64, 3)?;
-            bit_writer.write_bits(0b11111, 5)?;
-            bit_writer.write_bits(config.bit_depth_chroma_minus8 as u64, 3)?;
-
-            bit_writer.write_bits(config.sequence_parameter_set_ext.len() as u64, 8)?;
-            for sps_ext in &config.sequence_parameter_set_ext {
-                bit_writer.write_u16::<BigEndian>(sps_ext.len() as u16)?;
-                bit_writer.write_all(sps_ext)?;
-            }
-        }
-
-        writer.write_all(&bit_writer.into_inner())?;
-
+    pub fn parse(&mut self) -> Result<(), AvcError> {
+        let sps_t = Sps::new(&self.sps.first().unwrap().payload());
+        self.profile_indication = sps_t.profile_idc; //sps
+        self.level_indication = sps_t.level_idc; //sps
         Ok(())
+    }
+}
+
+impl TryFrom<&[u8]> for DecoderConfigurationRecord {
+    type Error = AvcError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        // FIXME: add checks before accessing buf, otherwise could panic
+        let mut buf = Cursor::new(bytes);
+
+        if buf.remaining() < 7 {
+            return Err(AvcError::NotEnoughData("AVC configuration record"));
+        }
+
+        let version = buf.get_u8();
+        if version != 1 {
+            return Err(AvcError::UnsupportedConfigurationRecordVersion(version));
+        }
+
+        let profile_indication = buf.get_u8();
+        let profile_compatability = buf.get_u8();
+        let level_indication = buf.get_u8();
+        let nalu_size = (buf.get_u8() & 0x03) + 1;
+
+        let sps_count = buf.get_u8() & 0x1F;
+        let mut sps = Vec::new();
+        for _ in 0..sps_count {
+            if buf.remaining() < 2 {
+                return Err(AvcError::NotEnoughData("DCR SPS length"));
+            }
+            let sps_length = buf.get_u16() as usize;
+
+            if buf.remaining() < sps_length {
+                return Err(AvcError::NotEnoughData("DCR SPS data"));
+            }
+            let tmp = buf.chunk()[..sps_length].to_owned();
+            buf.advance(sps_length);
+
+            sps.push(nal::Unit::try_from(&*tmp)?);
+        }
+
+        let pps_count = buf.get_u8();
+        let mut pps = Vec::new();
+        for _ in 0..pps_count {
+            if buf.remaining() < 2 {
+                return Err(AvcError::NotEnoughData("DCR PPS length"));
+            }
+            let pps_length = buf.get_u16() as usize;
+
+            if buf.remaining() < pps_length {
+                return Err(AvcError::NotEnoughData("DCR PPS data"));
+            }
+            let tmp = buf.chunk()[..pps_length].to_owned();
+            buf.advance(pps_length);
+
+            pps.push(nal::Unit::try_from(&*tmp)?);
+        }
+
+        Ok(Self {
+            version,
+            profile_indication,
+            profile_compatability,
+            level_indication,
+            nalu_size,
+            sps,
+            pps,
+        })
+    }
+}
+
+impl DecoderConfigurationRecord {
+    pub fn ready(&self) -> bool {
+        !self.sps.is_empty() && !self.pps.is_empty()
+    }
+}
+
+struct Sps {
+    profile_idc: u8,
+    level_idc: u8,
+}
+
+impl Sps {
+    fn new(bytes: &[u8]) -> Self {
+        let mut buf = Cursor::new(bytes);
+
+        // if buf.remaining() < 5 {
+
+        // }
+        assert!(buf.remaining() >= 5);
+        let profile_idc = buf.get_u8();
+        buf.advance(1);
+        let level_idc = buf.get_u8();
+        Self {
+            profile_idc,
+            level_idc,
+        }
     }
 }

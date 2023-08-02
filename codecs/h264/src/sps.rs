@@ -29,7 +29,7 @@ pub struct ColorConfig {
 }
 
 impl Sps {
-    pub fn parse(data: Bytes) -> io::Result<Self> {
+    pub fn parse(data: &Bytes) -> io::Result<Self> {
         let mut vec = Vec::with_capacity(data.len());
 
         // We need to remove the emulation prevention byte
@@ -49,23 +49,23 @@ impl Sps {
 
         let mut bit_reader = BitReader::from(vec);
 
-        let forbidden_zero_bit = bit_reader.read_bit()?;
-        if forbidden_zero_bit {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Forbidden zero bit is set",
-            ));
-        }
+        // let forbidden_zero_bit = bit_reader.read_bit()?;
+        // if forbidden_zero_bit {
+        //     return Err(io::Error::new(
+        //         io::ErrorKind::InvalidData,
+        //         "Forbidden zero bit is set",
+        //     ));
+        // }
 
-        bit_reader.seek_bits(2)?; // nal_ref_idc
+        // bit_reader.seek_bits(2)?; // nal_ref_idc
 
-        let nal_unit_type = bit_reader.read_bits(5)?;
-        if nal_unit_type != 7 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "NAL unit type is not SPS",
-            ));
-        }
+        // let nal_unit_type = bit_reader.read_bits(5)?;
+        // if nal_unit_type != 7 {
+        //     return Err(io::Error::new(
+        //         io::ErrorKind::InvalidData,
+        //         "NAL unit type is not SPS",
+        //     ));
+        // }
 
         let profile_idc = bit_reader.read_u8()?;
         bit_reader.seek_bits(
