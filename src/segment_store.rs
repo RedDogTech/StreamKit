@@ -1,12 +1,14 @@
 use bytes::Bytes;
 use h264::{config::DecoderConfigurationRecord, sps::Sps};
-use mp4::{types::{colr::{Colr, ColorType}, avc1::Avc1, stsd::{VisualSampleEntry, SampleEntry}, avcc::AvcC}, DynBox};
+use mp4::{types::{colr::{Colr, ColorType}, avc1::Avc1, stsd::{VisualSampleEntry, SampleEntry}, avcc::AvcC, ftyp::FourCC}, DynBox};
 use anyhow::Result;
 
 #[derive(Default)]
 pub struct SegmentStore {
     init_video: Bytes,
     init_audio: Bytes,
+
+    compatiable_brands: Vec<FourCC>,
 }
 
 impl SegmentStore {
@@ -14,10 +16,12 @@ impl SegmentStore {
         SegmentStore {
             init_video: Bytes::new(),
             init_audio: Bytes::new(),
+            compatiable_brands: vec![FourCC::Iso5, FourCC::Iso6],
         }
     }
 
-    pub fn init_video(&self, config: DecoderConfigurationRecord) -> Result<(DynBox, Sps)> {
+    pub fn init_video_stsd(&mut self, config: DecoderConfigurationRecord) -> Result<(DynBox, Sps)> {
+        self.compatiable_brands.push(FourCC::Avc1);
 
         let sps_data= config.sps[0].clone();
         let sps = h264::sps::Sps::parse(&sps_data.payload())?;
@@ -45,5 +49,8 @@ impl SegmentStore {
             sps,
         ))
     }
+
+
+    //pub fn 
 
 }

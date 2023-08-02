@@ -121,7 +121,6 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
 
                         if self.pmt.is_none() {
                             for (key, value) in &pmt.streams {
-                                let buffer = BytesMut::new();
                                 self.events.on_program_streams(&key, &value);
                             }
 

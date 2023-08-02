@@ -1,12 +1,12 @@
 use std::io::{self, Write};
 
-use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
+use byteorder::{WriteBytesExt, BigEndian};
 use bytes::Bytes;
 use bytesio::bit_writer::BitWriter;
 
 use {
     super::{nal, AvcError},
-    bytes::{Buf, BufMut},
+    bytes::Buf,
     std::{convert::TryFrom, io::Cursor},
 };
 

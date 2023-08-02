@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use aac::config::{AudioSpecificConfiguration, AudioObjectType};
+use aac::config::AudioObjectType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {

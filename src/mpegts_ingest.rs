@@ -49,7 +49,7 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
         if let Some(idr) = &self.h264_coder.dcr {
             println!("{:?}", idr);
 
-            if let Ok((foo, bar)) = self.segment_store.init_video(idr.clone()) {
+            if let Ok((foo, bar)) = self.segment_store.init_video_stsd(idr.clone()) {
                 println!("{:?}", foo);
                 println!("{:?}", bar);
             }

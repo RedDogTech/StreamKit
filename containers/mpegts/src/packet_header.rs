@@ -106,7 +106,7 @@ impl PacketHeader {
         pcr |= (val << 1) & 0x1FE;
     
         val = reader.read_u8()? as u64;
-        pcr |= ((val >> 7) & 0x01);
+        pcr |= (val >> 7) & 0x01;
     
         let _ext = (reader.read_u8()? as u16 & 0b1) << 8 | reader.read_u8()? as u16;
     
