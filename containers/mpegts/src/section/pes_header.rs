@@ -24,10 +24,10 @@ impl From<u8> for StreamId {
 #[derive(Clone, Debug)]
 pub struct PesHeader {
     header_size: usize,
-    stream_id: StreamId,
-    size: usize,
-    pts: Option<u64>,
-    dts: Option<u64>
+    pub stream_id: StreamId,
+    pub size: usize,
+    pub pts: Option<u64>,
+    pub dts: Option<u64>
 }
 
 impl PesHeader {
@@ -40,15 +40,9 @@ impl PesHeader {
         let stream_id = StreamId::from(reader.read_u8()?);
         let pes_length = reader.read_u16::<BigEndian>()?;
 
-        reader.seek(SeekFrom::Current(1))?;
+        reader.seek(SeekFrom::Current(1))?; //seek past the first part of the header
 
         let flags: u8 = reader.read_u8()?;
-        let pes_ext_flag = flags & 0x01;
-        let pes_crc_flag = (flags >> 1) & 0x01;
-        let add_copy_info_flag = (flags >> 2) & 0x01;
-        let dsm_trick_mode_flag = (flags >> 3) & 0x01;
-        let es_rate_flag = (flags >> 4) & 0x01;
-        let escr_flag = (flags >> 5) & 0x01;
         let pts_dts_flags = (flags >> 6) & 0x03;
 
         let mut optional_remaining = reader.read_u8()? as usize;
@@ -60,12 +54,14 @@ impl PesHeader {
 		{
             pts = Some(Self::read_pts(reader)?);
             optional_remaining -= 5;
+
             if pts_dts_flags == 3 {
                 dts = Some(Self::read_pts(reader)?);
                 optional_remaining -= 5;
             }
         }
 
+        //println!("size:{} flag:{} stream:{:?}, pts:{:?}, dts:{:?}", optional_remaining, pts_dts_flags, stream_id, pts, dts);
 
         header_size += optional_remaining;
 
@@ -77,8 +73,6 @@ impl PesHeader {
             dts,
         })
     }
-
-
 
     fn read_pts(reader: &mut Cursor<Bytes>)-> Result<u64>{
         let mut pts: u64 = 0;

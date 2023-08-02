@@ -1,10 +1,20 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::PesHeader}, error::DemuxError, packet_header::PacketHeader, DemuxerEvents};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::{PesHeader, StreamId}}, error::DemuxError, packet_header::PacketHeader, DemuxerEvents};
 use byteorder::ReadBytesExt;
 use anyhow::{Result, bail};
+use bytes::{BytesMut, BufMut, Bytes};
+use bytesio::bytes_reader::BytesCursor;
 
 pub const SYNC_BYTE: u8 = 0x47;
 pub const SIZE: usize = 188;
+
+#[derive(Clone, Debug)]
+struct Packet {
+    buffer: BytesMut,
+    stream_id: StreamId,
+    pts: Option<u64>,
+    dts: Option<u64>,
+}
 
 pub struct Demuxer<T> where T: DemuxerEvents {
     pmt_pid: Option<Pid>,
@@ -12,20 +22,26 @@ pub struct Demuxer<T> where T: DemuxerEvents {
     pmt: Option<PMT>,
 
     continutiy_check: HashMap<Pid, u8>,
+    packets: HashMap<Pid, Packet>,
 
     events: T,
 }
 
+
+pub static ANNEXB_NALUSTART_CODE: Bytes = Bytes::from_static(&[0x00, 0x00, 0x00, 0x01]);
+
 impl<T> Demuxer<T> where T: DemuxerEvents {
 
     pub fn new(events: T) -> Demuxer<T> {
-        Demuxer {
+        Demuxer {   
             pmt_pid: None,
             pcr_pid: None,
 
             pmt: None,
 
             continutiy_check: HashMap::new(),
+
+            packets: HashMap::new(),
 
             events,
         }
@@ -104,7 +120,8 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                         self.pcr_pid = Some(pmt.pcr_pid);
 
                         if self.pmt.is_none() {
-                            for (key, value) in &pmt.streams { 
+                            for (key, value) in &pmt.streams {
+                                let buffer = BytesMut::new();
                                 self.events.on_program_streams(&key, &value);
                             }
 
@@ -119,16 +136,38 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                     if header.adaptation_control.has_payload() {
 
                         if header.pusi {
-                            let pes_header = PesHeader::try_new(&mut reader)?;
-                            // println!("pid={:?}, pes_header={:?}", header.pid, pes_header);
-                        } else {
-                            // println!("pid={:?}, payload_size={:?}", header.pid,  (188 - header.header_size))
-                        }
-                        
-                    
-                    }
+                            if let Some(packet) = self.packets.get_mut(&header.pid) {
+                                if packet.buffer.len() != 0 {
+                                    let buf_clone = packet.buffer.clone();
 
-                    
+                                    match packet.stream_id {
+                                        StreamId::Audio(_) => {
+                                            self.events.on_audio_data(buf_clone.freeze(), packet.pts);
+                                        }
+                                        StreamId::Video(_) => {
+                                            self.events.on_video_data(buf_clone.freeze(), packet.pts, packet.dts);
+                                        },
+                                        _ => (),
+                                    }
+                                }
+                            }
+
+                            let pes_header = PesHeader::try_new(&mut reader)?;
+                            let packet = Packet {
+                                buffer: BytesMut::new(),
+                                stream_id: pes_header.stream_id,
+                                pts: pes_header.pts,
+                                dts: pes_header.dts,
+                            };
+
+                            self.packets.insert(header.pid, packet);
+                        }
+
+                        if let Some(packet) = self.packets.get_mut(&header.pid) {
+                            let remaning = reader.get_remaining();
+                            packet.buffer.put(remaning);
+                        }
+                    }
                 }
             }
         Ok(())
