@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 use libc::c_int;
 use libsrt_sys;
 
