@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use aac::AudioObjectType;
+use aac::config::{AudioSpecificConfiguration, AudioObjectType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
@@ -287,7 +287,7 @@ pub enum AudioCodec {
 impl fmt::Display for AudioCodec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AudioCodec::Aac { object_type } => write!(f, "mp4a.40.{}", u16::from(*object_type)),
+            AudioCodec::Aac { object_type } => write!(f, "mp4a.40.{}", u16::from(*object_type as u8)),
             AudioCodec::Opus => write!(f, "opus"),
         }
     }
@@ -313,7 +313,7 @@ impl FromStr for AudioCodec {
                 })?;
 
                 Ok(AudioCodec::Aac {
-                    object_type: AudioObjectType::from(object_type),
+                    object_type: AudioObjectType::try_from(object_type).unwrap(),
                 })
             }
             "opus" => Ok(AudioCodec::Opus),

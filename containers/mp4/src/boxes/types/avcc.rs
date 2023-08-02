@@ -1,7 +1,7 @@
 use std::io;
 
 use bytes::Bytes;
-use h264::AVCDecoderConfigurationRecord;
+use h264::config::DecoderConfigurationRecord;
 
 use crate::boxes::{header::BoxHeader, traits::BoxType};
 
@@ -10,11 +10,11 @@ use crate::boxes::{header::BoxHeader, traits::BoxType};
 /// ISO/IEC 14496-15:2022(E) - 5.4.2
 pub struct AvcC {
     pub header: BoxHeader,
-    pub avc_decoder_configuration_record: AVCDecoderConfigurationRecord,
+    pub avc_decoder_configuration_record: DecoderConfigurationRecord,
 }
 
 impl AvcC {
-    pub fn new(avc_decoder_configuration_record: AVCDecoderConfigurationRecord) -> Self {
+    pub fn new(avc_decoder_configuration_record: DecoderConfigurationRecord) -> Self {
         Self {
             header: BoxHeader::new(Self::NAME),
             avc_decoder_configuration_record,
@@ -29,7 +29,7 @@ impl BoxType for AvcC {
         let mut reader = io::Cursor::new(data);
         Ok(Self {
             header,
-            avc_decoder_configuration_record: AVCDecoderConfigurationRecord::demux(&mut reader)?,
+            avc_decoder_configuration_record: DecoderConfigurationRecord::demux(&mut reader)?,
         })
     }
 

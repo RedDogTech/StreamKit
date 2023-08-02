@@ -49,10 +49,10 @@ impl Mp4a {
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "Missing decoder specific info")
             })?;
-        let aac_config = aac::AudioSpecificConfig::parse(info)?;
+        let aac_config = aac::config::AudioObjectType::try_from(info[0] as u16).unwrap();
 
         Ok(AudioCodec::Aac {
-            object_type: aac_config.audio_object_type,
+            object_type: aac_config,
         })
     }
 }

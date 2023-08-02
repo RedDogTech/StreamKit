@@ -44,7 +44,7 @@ impl Avc1 {
             constraint_set: self
                 .avcc
                 .avc_decoder_configuration_record
-                .profile_compatibility,
+                .profile_compatability,
             level: self.avcc.avc_decoder_configuration_record.level_indication,
             profile: self
                 .avcc
