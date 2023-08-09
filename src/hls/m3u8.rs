@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::Arc};
 use anyhow::Result;
-use bytes::BytesMut;
+use bytes::{BytesMut, Bytes};
 use tokio::sync::RwLock;
 use std::fmt::Write;
 
@@ -60,6 +60,7 @@ pub struct M3u8 {
     is_live: bool,
     live_ts_count: usize,
     has_init: bool,
+    init_segment: Bytes,
 }
 
 impl M3u8 {
@@ -75,10 +76,11 @@ impl M3u8 {
             is_live: true,
             live_ts_count: 3,
             has_init: false,
+            init_segment: Bytes::new(),
         }
     }
 
-    pub async fn get_manifest(&self) -> Result<String> {
+    pub async fn get_manifest_text(&self) -> Result<String> {
         let mut manifest = String::new();
 
         writeln!(manifest, "#EXTM3U")?;
@@ -141,7 +143,6 @@ impl M3u8 {
        
         if self.is_live && segment_count >= self.live_ts_count {
             let segment = self.segments.pop_front().unwrap();
-            //self.ts_handler.delete(segment.path);
             let mut s = self.sequence_no.write().await;
             *s += 1;
         }

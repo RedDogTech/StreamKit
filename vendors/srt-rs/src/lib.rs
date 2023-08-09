@@ -63,8 +63,12 @@ pub struct SrtListener {
 
 impl SrtListener {
     pub fn accept(&self) -> AcceptFuture {
+        let mut epoll: Epoll = Epoll::new().unwrap();
+        epoll.add(&self.socket, &libsrt_sys::SRT_EPOLL_OPT::SRT_EPOLL_IN).unwrap();
+
         AcceptFuture {
             socket: self.socket,
+            epoll,
         }
     }
     pub fn close(self) -> Result<()> {
@@ -83,41 +87,37 @@ impl Drop for SrtListener {
 
 pub struct AcceptFuture {
     socket: SrtSocket,
+    epoll: Epoll,
 }
 
 impl Future for AcceptFuture {
     type Output = Result<(SrtStream, SocketAddr)>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.socket.accept() {
-            Ok((socket, addr)) => {
-                let r_b = socket.set_receive_blocking(false);
-                let s_b = socket.set_send_blocking(false);
-                if r_b.is_err() {
-                    Poll::Ready(Err(r_b.expect_err("unreachable")))
-                } else if s_b.is_err() {
-                    Poll::Ready(Err(s_b.expect_err("unreachable")))
-                } else {
-                    Poll::Ready(Ok((SrtStream { socket }, addr)))
+
+        if let Ok(handles) = self.epoll.wait(5) {
+            if handles.len() != 0 {
+                match self.socket.accept() {
+                    Ok((socket, addr)) => {
+                        let _ = socket.set_receive_blocking(false);
+                        let _ = socket.set_send_blocking(false);
+
+                        return Poll::Ready(Ok((SrtStream { socket }, addr)));
+                    },
+                    Err(e) => match e {
+                        SrtError::AsyncRcv => {
+                            return Poll::Pending
+                        },
+                        e => {
+                            return Poll::Ready(Err(e.into()))
+                        },
+                    }
                 }
             }
-            Err(e) => match e {
-                SrtError::AsyncRcv => {
-                    let waker = cx.waker().clone();
-                    let mut epoll = Epoll::new()?;
-                    epoll.add(&self.socket, &libsrt_sys::SRT_EPOLL_OPT::SRT_EPOLL_IN)?;
-                    thread::spawn(move || {
-                        if let Ok(_) = epoll.wait(-1) {
-                            waker.wake();
-                        }
-                    });
-                    Poll::Pending
-                }
-                e => {
-                    Poll::Ready(Err(e.into()))
-                },
-            },
         }
+
+        cx.waker().wake_by_ref();
+        return Poll::Pending
     }
 }
 

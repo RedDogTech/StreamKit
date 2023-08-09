@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use aac::AacCoder;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use common::FormatReader;
 use h264::H264Coder;
 use mpegts::{demuxer::Demuxer, pid::Pid, stream_type::StreamType};
@@ -19,8 +21,8 @@ pub struct IngestDemuxer {
     aac_coder: AacCoder,
 }
 
-impl Default for IngestDemuxer {
-    fn default() -> Self {
+impl IngestDemuxer {
+    fn new() -> Self {
         IngestDemuxer {
             first_pcr: false,
             latest_pcr_value: 0,
@@ -40,19 +42,30 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
         log::info!("New stream found: {:?}, type:{:?}", pid, stream_type);
     }
 
-    fn on_video_data(&mut self, data: Bytes, pts: Option<u64>, dts: Option<u64>) {        
+    fn on_video_data(&mut self, data: Bytes, pts: Option<u64>, dts: Option<u64>) {   
+
+        if self.first_pcr {
+            let pts: i64 = pts.unwrap() as i64; //Should not fail
+            let dts: i64 = match dts {
+                Some(dts) => dts as i64,
+                None => pts as i64,
+            };
+
+            let cts: i64 = (pts - dts + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64;
+            let timestamp: i64 = ((dts as i64 - self.latest_pcr_value as i64 + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64) + self.latest_pcr_timestamp_90khz as i64;
+            let program_date_time = self.latest_pcr_datetime + Duration::seconds_f64(((dts as f64 - self.latest_pcr_value as f64 + mpegts::PCR_CYCLE as f64) % mpegts::PCR_CYCLE as f64) / mpegts::HZ as f64);
+            
+            println!("cts:{}, timestamp:{} program_date_time:{}", cts, timestamp, program_date_time);
+        }
+
         let video = match self.h264_coder.read_format(h264::AnnexB, &data).unwrap() {
             Some(avc) => println!("{:?}", avc),
             None => {},
         };
 
         if let Some(idr) = &self.h264_coder.dcr {
-            println!("{:?}", idr);
+            let _ = self.segment_store.init_video_stsd(idr.clone());
 
-            if let Ok((foo, bar)) = self.segment_store.init_video_stsd(idr.clone()) {
-                println!("{:?}", foo);
-                println!("{:?}", bar);
-            }
         }
     }
 
@@ -78,6 +91,6 @@ impl mpegts::DemuxerEvents for IngestDemuxer {
     }
 }
 
-pub fn create_demux() -> Demuxer<IngestDemuxer> {
-    Demuxer::new(IngestDemuxer::default())
+pub async fn create_demux() -> Demuxer<IngestDemuxer> {
+    Demuxer::new(IngestDemuxer::new())
 }
