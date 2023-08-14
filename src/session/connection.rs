@@ -1,10 +1,11 @@
 use std::time::Duration;
 use anyhow::Result;
+use mpegts::{demuxer::Demuxer, DemuxerEvent};
 use srt_rs::stream::SrtStream;
-use tokio::time::timeout;
+use tokio::{time::timeout, sync::oneshot};
 use crate::session::Message;
 
-use super::{ManagerHandle, Handle, ChannelMessage};
+use super::{ManagerHandle, Handle, ChannelMessage, Packet, Codec};
 
 const TIME_OUT: std::time::Duration = Duration::from_secs(5);
 
@@ -19,16 +20,21 @@ pub struct Connection {
     manager_handle: ManagerHandle,
     app_name: Option<String>,
     stream: SrtStream,
+    demuxer: Demuxer,
     state: State,
 }
 
 impl Connection{
     pub fn new(id: u64, stream: SrtStream, manager_handle: ManagerHandle) -> Self {
+
+        let app_name = stream.get_stream_id().ok();
+
         Self {
             id,
             stream,
             manager_handle,
-            app_name: None,
+            app_name,
+            demuxer: Demuxer::new(),
             state: State::Initializing,
         }
     }
@@ -42,10 +48,11 @@ impl Connection{
 
                     match timeout(TIME_OUT, message).await? {
                         Ok((size, _)) => {
-                            //log::info!("GOT Bytes: {}", size);
+                            for event in self.demuxer.push(&mut buf[..size])? {
+                                self.handle_event(event).await?;
+                            }
                         }
                         _ => self.disconnect()?,
-        
                     }
                 }
                 State::Disconnecting => {
@@ -54,6 +61,57 @@ impl Connection{
                 }
             }
         }
+    }
+
+    async fn handle_event(&mut self, event: DemuxerEvent) -> Result<()> {
+        match event {
+            DemuxerEvent::StreamDetails(streams) => {
+                let (request, response) = oneshot::channel();
+                let app_name = self.app_name.clone().unwrap();
+
+                self.manager_handle
+                    .send(ChannelMessage::Create((app_name, request)))?;
+                let session_sender = response.await?;
+
+                self.state = State::Publishing(session_sender);
+
+                log::info!("Stream Info: {:?}", &streams);
+            },
+
+            DemuxerEvent::Video(data, pts, dts) => {
+                if let State::Publishing(session) = &mut self.state {
+
+                    let packet = Packet {
+                        codec: Codec::H264,
+                        data,
+                        pts: pts.unwrap(),
+                        dts,
+                    };
+                    
+                    session.send(Message::Packet(packet))?;
+                }
+            },
+            DemuxerEvent::Audio(data, pts) => {
+                if let State::Publishing(session) = &mut self.state {
+
+                    let packet = Packet {
+                        codec: Codec::AAC,
+                        data,
+                        pts: pts.unwrap(),
+                        dts: None,
+                    };
+
+                    session.send(Message::Packet(packet))?;
+                }
+            },
+            DemuxerEvent::ClockRef(dcr) => {
+                if let State::Publishing(session) = &mut self.state {
+                    session.send(Message::ClockRef(dcr))?;
+                }
+            },
+        }
+
+        Ok(())
     }
 
     fn disconnect(&mut self) -> Result<()> {

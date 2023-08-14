@@ -1,5 +1,5 @@
 use std::{collections::HashMap, io::{self, Seek}};
-use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::{PesHeader, StreamId}}, error::DemuxError, packet_header::PacketHeader, DemuxerEvents};
+use crate::{pid::Pid, section::{pat::PAT, pmt::PMT, pes_header::{PesHeader, StreamId}}, error::DemuxError, packet_header::PacketHeader, DemuxerEvent};
 use byteorder::ReadBytesExt;
 use anyhow::{Result, bail};
 use bytes::{BytesMut, BufMut, Bytes};
@@ -16,23 +16,22 @@ struct Packet {
     dts: Option<u64>,
 }
 
-pub struct Demuxer<T> where T: DemuxerEvents {
+pub struct Demuxer {
     pmt_pid: Option<Pid>,
     pcr_pid: Option<Pid>,
     pmt: Option<PMT>,
 
+    return_queue: Vec<DemuxerEvent>,
     continutiy_check: HashMap<Pid, u8>,
     packets: HashMap<Pid, Packet>,
-
-    events: T,
 }
 
 
 pub static ANNEXB_NALUSTART_CODE: Bytes = Bytes::from_static(&[0x00, 0x00, 0x00, 0x01]);
 
-impl<T> Demuxer<T> where T: DemuxerEvents {
+impl Demuxer {
 
-    pub fn new(events: T) -> Demuxer<T> {
+    pub fn new() -> Demuxer {
         Demuxer {   
             pmt_pid: None,
             pcr_pid: None,
@@ -40,10 +39,8 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
             pmt: None,
 
             continutiy_check: HashMap::new(),
-
             packets: HashMap::new(),
-
-            events,
+            return_queue: Vec::new(),
         }
     }
 
@@ -52,6 +49,10 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
             return pmt.streams.contains_key(pid);
         }
         false
+    }
+
+    fn emit(&mut self, event: DemuxerEvent) {
+        self.return_queue.push(event);
     }
 
     pub fn check_continutiy(&mut self, packet_header: &PacketHeader) {
@@ -75,7 +76,7 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
         }
     }
 
-    pub fn push(&mut self, buf: &[u8]) ->Result<()> {
+    pub fn push(&mut self, buf: &[u8]) ->Result<Vec<DemuxerEvent>> {
         let mut itr = buf
             .chunks_exact(SIZE);
 
@@ -90,7 +91,7 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                 let header = PacketHeader::try_new(&mut reader)?;
 
                 if let Some(pcr) = header.pcr {
-                    self.events.on_pcr(pcr);
+                    self.emit(DemuxerEvent::ClockRef(pcr));
                 }
 
                 if header.pid == Pid::PAT {
@@ -120,10 +121,7 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                         self.pcr_pid = Some(pmt.pcr_pid);
 
                         if self.pmt.is_none() {
-                            for (key, value) in &pmt.streams {
-                                self.events.on_program_streams(&key, &value);
-                            }
-
+                            self.emit(DemuxerEvent::StreamDetails(pmt.streams.clone()));
                             self.pmt = Some(pmt);
                         }
                     }
@@ -137,14 +135,14 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                         if header.pusi {
                             if let Some(packet) = self.packets.get_mut(&header.pid) {
                                 if packet.buffer.len() != 0 {
-                                    let buf_clone = packet.buffer.clone();
+                                    let packet_clone = packet.clone();
 
                                     match packet.stream_id {
                                         StreamId::Audio(_) => {
-                                            self.events.on_audio_data(buf_clone.freeze(), packet.pts);
+                                            self.emit(DemuxerEvent::Audio(packet_clone.buffer.freeze(), packet_clone.pts));
                                         }
                                         StreamId::Video(_) => {
-                                            self.events.on_video_data(buf_clone.freeze(), packet.pts, packet.dts);
+                                            self.emit(DemuxerEvent::Video(packet_clone.buffer.freeze(), packet_clone.pts, packet_clone.dts));
                                         },
                                         _ => (),
                                     }
@@ -169,6 +167,7 @@ impl<T> Demuxer<T> where T: DemuxerEvents {
                     }
                 }
             }
-        Ok(())
+
+            Ok(self.return_queue.drain(..).collect())
     }
 }

@@ -20,7 +20,7 @@ pub struct Traf {
 }
 
 impl Traf {
-    pub fn new(tfhd: Tfhd, trun: Option<Trun>, tfdt: Option<Tfdt>) -> Self {
+    pub fn new(tfhd: Tfhd, tfdt: Option<Tfdt>,  trun: Option<Trun>) -> Self {
         Self {
             header: BoxHeader::new(Self::NAME),
             tfhd,
