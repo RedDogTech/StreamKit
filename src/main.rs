@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     {
         let manager_handle_t = manager_handle.clone();
         handles.push(tokio::spawn(async {
-            _ = fmp4::Service::new(manager_handle_t).run(Arc::clone(&SESSION_STORES)).await;
+            _ = fmp4::Service::new(manager_handle_t, opt).run(Arc::clone(&SESSION_STORES)).await;
          }));
 
          handles.push(tokio::spawn(async move {

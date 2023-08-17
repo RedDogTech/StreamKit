@@ -68,6 +68,8 @@ impl FromStr for LogLevel {
 
 const STREAMKIT_LOG_LEVEL: &str = "STREAMKIT_LOG_LEVEL";
 const STREAMKIT_ENABLE_METRICS: &str = "STREAMKIT_ENABLE_METRICS";
+const STREAMKIT_PART_SIZE: &str = "STREAMKIT_ENABLE_METRICS";
+const STREAMKIT_WINDOW_SIZE: &str = "STREAMKIT_ENABLE_METRICS";
 
 const DEFAULT_CONFIG_FILE_PATH: &str = "./config.toml";
 
@@ -93,6 +95,16 @@ pub struct Opt {
     /// Format must be TOML.
     #[clap(long)]
     pub config_file_path: Option<PathBuf>,
+
+    //Sets the size of the partials that make up the fmp4 segments
+    #[clap(long, env = STREAMKIT_PART_SIZE, default_value_t = 0.15)]
+    #[serde(default)]
+    pub part_duration: f32,
+
+    //Sets the windows size (rewind window) for the HLS stream.
+    #[clap(long, env = STREAMKIT_WINDOW_SIZE, default_value_t = 10)]
+    #[serde(default)]
+    pub window_size: usize,
 }
 
 
@@ -145,10 +157,14 @@ impl Opt {
             log_level,
             enable_metrics: enable_metrics_route,
             config_file_path: _,
+            part_duration,
+            window_size: _,
         } = self;
 
         export_to_env_if_not_present(STREAMKIT_LOG_LEVEL, log_level.to_string());
         export_to_env_if_not_present(STREAMKIT_ENABLE_METRICS,enable_metrics_route.to_string());
+        export_to_env_if_not_present(STREAMKIT_PART_SIZE,part_duration.to_string());
+        //export_to_env_if_not_present(STREAMKIT_WINDOW_SIZE, window_size.to_string());
     }
 }
 

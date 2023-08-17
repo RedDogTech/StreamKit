@@ -1,4 +1,4 @@
-use std::{io::{self, Write, Seek}, collections::HashSet};
+use std::io::{self, Write};
 
 use byteorder::{WriteBytesExt, BigEndian, ReadBytesExt};
 use bytes::{Bytes, BytesMut, BufMut};
@@ -82,7 +82,6 @@ impl DecoderConfigurationRecord {
 
         bit_writer.write_u8(self.version)?;
         bit_writer.write_u8(self.profile_indication)?;
-        println!("writing {}", self.profile_compatability);
         bit_writer.write_u8(self.profile_compatability)?;
         bit_writer.write_u8(self.level_indication)?;
         bit_writer.write_u8(0xFF)?;
@@ -148,17 +147,7 @@ impl DecoderConfigurationRecord {
 
         let sps = self.sps.first().unwrap().payload();
 
-        for byte in sps.clone() {
-            print!("{:02x}, ", byte);
-        }
-        println!("");
-
         let buffer = DecoderConfigurationRecord::ebsp_to_rbsp(sps);
-
-        for byte in buffer.clone() {
-            print!("{:02x}", byte);
-        }
-        println!("");
 
         let mut bit_reader = BitReader::from(buffer);
 
@@ -166,7 +155,6 @@ impl DecoderConfigurationRecord {
         self.profile_compatability = bit_reader.read_u8()?;
         self.level_indication = bit_reader.read_u8()?;
 
-        println!("{}", self.profile_compatability);
 
         let chroma_format_idc = 1;
 
@@ -273,8 +261,6 @@ impl DecoderConfigurationRecord {
             }
         }
 
-        println!("FPS {}", fps);
-
         let mut crop_unit_x =0;
         let mut crop_unit_y = 0;
 
@@ -308,10 +294,10 @@ impl DecoderConfigurationRecord {
         self.width = presentation_width as u32;
         self.height = presentation_height as u32;
 
-        println!("codec_width{}, codec_height{}", codec_width, codec_height);
-        println!("presentation_width{}, presentation_height{}", presentation_width, presentation_height);
+        // println!("codec_width{}, codec_height{}", codec_width, codec_height);
+        // println!("presentation_width{}, presentation_height{}", presentation_width, presentation_height);
 
-        println!("=========================");
+        // println!("=========================");
 
         Ok(())
     }

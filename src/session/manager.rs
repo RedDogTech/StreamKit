@@ -1,5 +1,7 @@
 use std::{sync::Arc, collections::HashMap};
 use tokio::sync::{RwLock, mpsc, broadcast};
+use crate::Opt;
+
 use super::{ManagerHandle, ChannelReceiver, Trigger, Handle, OutgoingBroadcast, ChannelMessage, Message};
 use anyhow::{Result, bail};
 

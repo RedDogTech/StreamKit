@@ -4,6 +4,8 @@ use bytes::{Bytes, BytesMut, BufMut};
 use anyhow::Result;
 use time::{OffsetDateTime, Duration, format_description::well_known::Rfc3339};
 
+use crate::Opt;
+
 #[derive(Debug)]
 struct PartialSegment {
     data: BytesMut,
@@ -132,14 +134,14 @@ pub struct SegmentStore {
 }
 
 impl SegmentStore {
-    pub fn new() -> SegmentStore {
+    pub fn new(opt: &Opt) -> SegmentStore {
         SegmentStore {
             init_segment: Bytes::new(),
             media_sequence: 0,
             published: false,
-            windows_size: Some(10),
+            windows_size: Some(opt.window_size),
             target_duration: Duration::SECOND,
-            part_duration: 0.15,
+            part_duration: opt.part_duration,
             low_latency_mode: false,
             version: 9,
             is_live: true,
