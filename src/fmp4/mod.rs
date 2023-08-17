@@ -1,10 +1,9 @@
 use std::{sync::Arc, cmp::max};
-use crate::{session::{ManagerHandle, trigger_channel, ChannelMessage, Watcher, Message, Codec}, hls::{SegmentStores, segment_store::SegmentStore}};
-use aac::AacCoder;
+use crate::{session::{ManagerHandle, trigger_channel, ChannelMessage, Watcher, Message, Codec}, hls::{SegmentStores, segment_store::SegmentStore}, Opt};
 use anyhow::Result;
 use bytes::{Bytes, BytesMut, BufMut};
 use bytesio::bytes_writer::BytesWriter;
-use h264::{H264Coder, config::DecoderConfigurationRecord, nal::{self, UnitType}};
+use h264::{H264Coder, nal};
 use mp4::{types::{trun::Trun, moof::Moof, mfhd::Mfhd, traf::Traf, tfhd::Tfhd, tfdt::Tfdt, mdat::Mdat, mvex::Mvex, trex::Trex, stsz::Stsz, vmhd::Vmhd, stco::Stco, stsc::Stsc, stts::Stts, stsd::Stsd, stbl::Stbl, minf::Minf, hdlr::{Hdlr, HandlerType}, mdia::Mdia, tkhd::Tkhd, trak::Trak, mvhd::Mvhd, moov::Moov, ftyp::{FourCC, Ftyp}, mdhd::Mdhd}, BoxType, DynBox};
 use time::{OffsetDateTime, Duration};
 use common::FormatReader;
@@ -28,12 +27,10 @@ pub struct Mp4fWriter {
 
     next_h264: Option<(bool, Vec<Vec<u8>>, i64, i64, OffsetDateTime)>,
     current_h264: Option<(bool, Vec<Vec<u8>>, i64, i64, OffsetDateTime)>,
-
-    h264_fragments: Vec<Bytes>,
 }
 
 impl Mp4fWriter {
-    fn new(stream_name: String, watcher: Watcher, stores: SegmentStores) -> Self {
+    fn new(opt: &Opt, stream_name: String, watcher: Watcher, stores: SegmentStores) -> Self {
         Self {
             stream_name,
             watcher,
@@ -44,11 +41,10 @@ impl Mp4fWriter {
             latest_pcr_datetime: None,
 
             partial_begin_timestamp: None,
-            part_duration: 0.15,
+            part_duration: opt.part_duration,
             initialization_segment_dispatched: false,
 
             h264_coder: H264Coder::new(),
-            h264_fragments: Vec::new(),
             next_h264: None,
             current_h264: None,
         }
@@ -101,7 +97,7 @@ impl Mp4fWriter {
         Ok(())
     }
 
-    async fn handle_audio(&mut self, data: Bytes, pts: u64) ->Result<()> {
+    async fn handle_audio(&mut self, _data: Bytes, _pts: u64) ->Result<()> {
         Ok(())
     }
 
@@ -207,8 +203,6 @@ impl Mp4fWriter {
             moof.mux(&mut writer)?;
 
             Mdat::new(vec![content]).mux(&mut writer)?;
-
-            self.h264_fragments.push(writer.dispose());
         }
 
         (self.next_h264, self.current_h264) = (self.current_h264.clone(), self.next_h264.clone());
@@ -237,9 +231,7 @@ impl Mp4fWriter {
         let mut lock = self.stores.write().await;
 
         if let Some(store) = lock.get_mut(&self.stream_name) {
-            while let Some(fragment) = self.h264_fragments.pop() {
-                store.push(fragment);
-            }
+            store.push(writer.dispose());
         }
 
         Ok(())
@@ -322,12 +314,13 @@ impl Mp4fWriter {
 
 pub struct Service {
     manager_handle: ManagerHandle,
+    opt: Opt,
 }
 
 
 impl Service {
-    pub fn new(manager_handle: ManagerHandle) -> Self {
-        Self { manager_handle }
+    pub fn new(manager_handle: ManagerHandle, opt: Opt) -> Self {
+        Self { manager_handle, opt }
     }
 
     pub async fn run(self, stores: SegmentStores)-> Result<()> {        
@@ -349,14 +342,14 @@ impl Service {
                 }
 
                 None => {
-                    log::info!("creating new stream store {}", stream_name);
-                    let store = SegmentStore::new();
+                    log::info!("new_stream_store:{}, part_duration:{}, window_size:{}", stream_name, self.opt.part_duration, self.opt.window_size);
+                    let store = SegmentStore::new(&self.opt);
                     lock.insert(stream_name.clone(), store);
 
                 }
             }
 
-            let mut fmp4_writer = Mp4fWriter::new(stream_name, watcher, Arc::clone(&stores));
+            let mut fmp4_writer = Mp4fWriter::new(&self.opt, stream_name, watcher, Arc::clone(&stores));
             tokio::spawn(async move { fmp4_writer.run().await.unwrap() });
         }
         
