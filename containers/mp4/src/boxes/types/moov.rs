@@ -82,12 +82,12 @@ impl BoxType for Moov {
     fn primitive_mux<T: io::Write>(&self, writer: &mut T) -> io::Result<()> {
         self.mvhd.mux(writer)?;
 
-        for trak in &self.traks {
-            trak.mux(writer)?;
-        }
-
         if let Some(mvex) = &self.mvex {
             mvex.mux(writer)?;
+        }
+
+        for trak in &self.traks {
+            trak.mux(writer)?;
         }
 
         for unknown in &self.unknown {

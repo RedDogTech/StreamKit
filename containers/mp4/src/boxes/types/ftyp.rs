@@ -77,6 +77,7 @@ impl BoxType for Ftyp {
 pub enum FourCC {
     Iso5,
     Iso6,
+    Isom,
     Mp41,
     Avc1,
     Av01,
@@ -89,6 +90,7 @@ impl FourCC {
         match self {
             Self::Iso5 => *b"iso5",
             Self::Iso6 => *b"iso6",
+            Self::Isom => *b"isom",
             Self::Mp41 => *b"mp41",
             Self::Avc1 => *b"avc1",
             Self::Av01 => *b"av01",
@@ -103,6 +105,7 @@ impl From<[u8; 4]> for FourCC {
         match &bytes {
             b"iso5" => Self::Iso5,
             b"iso6" => Self::Iso6,
+            b"isom" => Self::Isom,
             b"mp41" => Self::Mp41,
             b"avc1" => Self::Avc1,
             b"av01" => Self::Av01,

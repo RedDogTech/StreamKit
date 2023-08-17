@@ -13,7 +13,7 @@ log = "0.4"
 env_logger = "0.9.3"
 anyhow = "1.0"
 toml = "0.7.3"
-time = "0.3.25"
+time = { version = "0.3.25", features = ["formatting"] }
 axum = { version = "0.6.19", features = ["tokio"] }
 clap = { version = "4.2.1", features = ["derive", "env"] }
 serde = { version = "1.0.160", features = ["derive"] }

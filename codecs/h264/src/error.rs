@@ -16,4 +16,7 @@ pub enum AvcError {
 
     #[error("Unsupported or unknown NAL unit type {0}")]
     UnsupportedNalUnitType(u8),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
 }

@@ -29,21 +29,21 @@ pub struct ColorConfig {
 }
 
 impl Sps {
-    pub fn parse(data: &Bytes) -> io::Result<Self> {
-        let mut vec = Vec::with_capacity(data.len());
+    pub fn parse(ebsp_data: &Bytes) -> io::Result<Self> {
+        let mut vec = Vec::with_capacity(ebsp_data.len());
 
         // We need to remove the emulation prevention byte
         // This is BARELY documented in the spec, but it's there.
         // ISO/IEC-14496-10-2022 - 3.1.48
-        let mut i = 0;
-        while i < data.len() - 3 {
-            if data[i] == 0x00 && data[i + 1] == 0x00 && data[i + 2] == 0x03 {
-                vec.push(0x00);
-                vec.push(0x00);
-                i += 3;
+        let mut pos = 0;
+        while pos < ebsp_data.len() {
+            if pos + 2 < ebsp_data.len() && ebsp_data[pos] == 0x00 && ebsp_data[pos + 1] == 0x00 && ebsp_data[pos + 2] == 0x03 {
+                // Emulation prevention byte detected, skip it
+                vec.extend_from_slice(&ebsp_data[pos..pos + 2]);
+                pos += 3;
             } else {
-                vec.push(data[i]);
-                i += 1;
+                vec.push(ebsp_data[pos]);
+                pos += 1;
             }
         }
 
@@ -68,6 +68,9 @@ impl Sps {
         // }
 
         let profile_idc = bit_reader.read_u8()?;
+
+        println!("profile_idc {}", profile_idc);
+
         bit_reader.seek_bits(
             1 // constraint_set0_flag
             + 1 // constraint_set1_flag
@@ -78,6 +81,8 @@ impl Sps {
 
         let level_idc = bit_reader.read_u8()?;
         read_exp_golomb(&mut bit_reader)?; // seq_parameter_set_id
+
+        println!("level_idc {}", level_idc);
 
         let sps_ext = match profile_idc {
             100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135 => {
@@ -127,9 +132,11 @@ impl Sps {
         let width = ((pic_width_in_mbs_minus1 + 1) * 16)
             - frame_crop_bottom_offset * 2
             - frame_crop_top_offset * 2;
+
         let height = ((2 - frame_mbs_only_flag as u64) * (pic_height_in_map_units_minus1 + 1) * 16)
             - (frame_crop_right_offset * 2)
             - (frame_crop_left_offset * 2);
+        
         let mut frame_rate = 0.0;
 
         let vui_parameters_present_flag = bit_reader.read_bit()?;
@@ -141,11 +148,31 @@ impl Sps {
 
             // aspect_ratio_info_present_flag
             if bit_reader.read_bit()? {
-                let aspect_ratio_idc = bit_reader.read_u8()?;
-                if aspect_ratio_idc == 255 {
-                    bit_reader.seek_bits(16)?; // sar_width
-                    bit_reader.seek_bits(16)?; // sar_height
+                let aspect_ratio_idc = bit_reader.read_u8()? as usize;
+
+                let sar_w_table = [1, 12, 10, 16, 40, 24, 20, 32, 80, 18, 15, 64, 160, 4, 3, 2];
+                let sar_h_table = [1, 11, 11, 11, 33, 11, 11, 11, 33, 11, 11, 33,  99, 3, 2, 1];
+
+                let mut sar_width = 0;
+                let mut sar_height = 0;
+
+                if 0 < aspect_ratio_idc && aspect_ratio_idc <= 16 {
+                    sar_width = sar_w_table[aspect_ratio_idc - 1];
+                    sar_height = sar_h_table[aspect_ratio_idc - 1];
+
+                } else if aspect_ratio_idc == 255 {
+                    sar_width = bit_reader.read_bits(16)?; // sar_width
+                    sar_height = bit_reader.read_bits(16)?; // sar_height
                 }
+
+                println!("sar_width {:?}", sar_width);
+                println!("sar_height {:?}", sar_height);
+
+
+                let presentation_width = width * sar_width + (sar_height - 1); // sar_height
+                let presentation_height = height;
+
+                println!("presentation_width{}, presentation_height{}", presentation_width, presentation_height);
             }
 
             // overscan_info_present_flag

@@ -34,7 +34,7 @@ impl BoxType for AvcC {
     }
 
     fn primitive_size(&self) -> u64 {
-        self.avc_decoder_configuration_record.size()
+        self.avc_decoder_configuration_record.size() + 2
     }
 
     fn primitive_mux<T: io::Write>(&self, writer: &mut T) -> io::Result<()> {

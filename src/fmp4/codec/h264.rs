@@ -1,38 +1,21 @@
 use bytes::Bytes;
-use h264::{config::DecoderConfigurationRecord, sps::Sps};
-use mp4::{DynBox, types::{colr::{ColorType, Colr}, stsd::{VisualSampleEntry, SampleEntry}, avc1::Avc1, avcc::AvcC, trun::{TrunSampleFlag, TrunSample}}};
-use anyhow::{Result, bail};
+use h264::config::DecoderConfigurationRecord;
+use mp4::{DynBox, types::{stsd::{VisualSampleEntry, SampleEntry}, avc1::Avc1, avcc::AvcC, trun::{TrunSampleFlag, TrunSample}}};
+use anyhow::Result;
 
-pub fn stsd_entry(config: DecoderConfigurationRecord) -> Result<(DynBox, Sps)> {
-    if config.sps.is_empty() {
-        bail!("No H264 SPS data found");
-    }
-
-    let sps_data= config.sps[0].clone();
-    let sps = h264::sps::Sps::parse(&sps_data.payload())?;
-
-    let colr = sps.color_config.as_ref().map(|color_config| {
-        Colr::new(ColorType::Nclx {
-            color_primaries: color_config.color_primaries as u16,
-            matrix_coefficients: color_config.matrix_coefficients as u16,
-            transfer_characteristics: color_config.transfer_characteristics as u16,
-            full_range_flag: color_config.full_range,
-        })
-    });
-
-    Ok((
+pub fn stsd_entry(config: DecoderConfigurationRecord) -> Result<DynBox> {
+    Ok(
         Avc1::new(
             SampleEntry::new(VisualSampleEntry::new(
-                sps.width as u16,
-                sps.height as u16,
-                colr,
+                config.width as u16,
+                config.height as u16,
+                None
             )),
             AvcC::new(config),
             None,
         )
-        .into(),
-        sps,
-    ))
+        .into()
+    )
 }
 
 pub fn trun_sample(

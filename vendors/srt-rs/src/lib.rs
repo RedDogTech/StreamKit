@@ -1,4 +1,4 @@
-use std::{net::{ToSocketAddrs, SocketAddr}, future::Future, task::{Context, Poll}, pin::Pin, thread};
+use std::{net::{ToSocketAddrs, SocketAddr}, future::Future, task::{Context, Poll}, pin::Pin};
 
 use anyhow::Result;
 use epoll::Epoll;

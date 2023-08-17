@@ -1,10 +1,9 @@
-use anyhow::{Result, Ok};
+use anyhow::Result;
 use std::{sync::Arc, collections::HashMap};
 use tokio::sync::RwLock;
-use crate::{session::ManagerHandle, routes};
+use crate::routes;
 use self::segment_store::SegmentStore;
 
-pub mod m3u8;
 pub mod segment_store;
 pub type SegmentStores = Arc<RwLock<HashMap<String, SegmentStore>>>;
 

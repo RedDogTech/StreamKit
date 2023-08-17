@@ -44,7 +44,7 @@ impl WriteFormat<Avc> for Avcc {
     fn write_format(&self, input: Avc, _ctx: &Self::Context) -> Result<Vec<u8>, Self::Error> {
         let nalus: Vec<nal::Unit> = input.into();
         let mut out_buffer = Vec::new();
-        //out_buffer.extend(ctx.to_bytes());
+
         for nalu in nalus {
             use nal::UnitType::*;
             match &nalu.kind {
