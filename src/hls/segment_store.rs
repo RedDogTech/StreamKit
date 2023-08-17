@@ -26,8 +26,12 @@ impl PartialSegment {
         self.data.put(data);
     }
 
-    fn payload(&self) -> Bytes {
-        self.data.clone().freeze()
+    fn payload(&self) -> Option<Bytes> {
+        if self.end_pts.is_some() {
+            return Some(self.data.clone().freeze());
+        }
+
+        None
     }
 
     fn complete(&mut self, end_pts: u32) {
@@ -237,8 +241,26 @@ impl SegmentStore {
         return self.segments[index].payload();
     }
 
-    pub fn partial(&self, msn: usize, part: usize) {
-        
+    pub fn partial(&self, msn: usize, part: usize) -> Option<Bytes> {
+        if !self.in_range(msn) {
+            if !self.in_outdated(msn) {
+                return None;
+            } else {
+                let index = (self.media_sequence - msn) - 1;
+                if part > self.outdated[index].partials.len() {
+                    return None
+                } else {
+                    return self.outdated[index].partials[part].payload();
+                }
+            }
+        }
+
+        let index = msn - self.media_sequence;
+        if part > self.segments[index].partials.len() {
+            return None;
+        } else {
+            return self.segments[index].partials[part].payload();
+        }
     }
 
     pub async fn get_manifest_text(&self) -> Result<String> {
@@ -272,7 +294,7 @@ impl SegmentStore {
             writeln!(manifest, "#EXT-X-PROGRAM-DATE-TIME:{}", segment.program_datetime.format(&Rfc3339)?)?;
             if self.low_latency_mode {
                 
-                for (index, partial) in segment.partials.iter().enumerate() {
+                for (index, partial) in segment.partials.iter().rev().enumerate() {
                     if seq >= self.segments.len() - 4 {
                         let mut independant = String::new();
 

@@ -165,7 +165,7 @@ impl Mp4fWriter {
         let mut begin_program_date_time: Option<OffsetDateTime> = None;
         let mut writer = BytesWriter::default();
 
-        if let Some((has_key_frame, mut samples, dts, cts, pdt)) = self.current_h264.clone() {
+        if let Some((has_key_frame, samples, dts, cts, pdt)) = self.current_h264.clone() {
             has_idr = has_key_frame;
             begin_timestamp = Some(dts);
             begin_program_date_time = Some(pdt);
@@ -174,7 +174,7 @@ impl Mp4fWriter {
             //re-package to ebsp
             let mut content = BytesMut::new();
 
-            while let Some(sample) = samples.pop() {
+            for sample in samples {
                 content.put_u32(sample.len() as u32);
                 content.extend(sample);
             }
