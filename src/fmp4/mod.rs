@@ -90,7 +90,7 @@ impl Mp4fWriter {
         if let Some(latest_pcr_datetime) = self.latest_pcr_datetime {
             self.latest_pcr_datetime = Some(latest_pcr_datetime + Duration::seconds_f64(pcr_diff as f64 / mpegts::HZ as f64))
         } else {
-            self.latest_pcr_datetime = Some(OffsetDateTime::now_utc());
+            self.latest_pcr_datetime = Some(OffsetDateTime::now_utc() - Duration::SECOND);
         }
         
         self.latest_pcr_value = Some(prc_value); 
@@ -286,24 +286,27 @@ impl Mp4fWriter {
                     let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
     
                     if (self.part_duration * mpegts::HZ as f32) < part_diff as f32 {
-                        let partial_begin_timestamp = begin_timestamp - max(0, (part_diff as f32 - self.part_duration as f32 * mpegts::HZ as f32) as u32);
+                        let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
+                        let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
                         self.partial_begin_timestamp = Some(partial_begin_timestamp);
                         store.continuous_partial(partial_begin_timestamp, false);
-                       // println!(" store.continuous_partial({}, false);", partial_begin_timestamp);
+                        println!(" store.continuous_partial({}, false);", partial_begin_timestamp);
                     }
                 }
-    
+                
                 self.partial_begin_timestamp = Some(begin_timestamp);
                 store.continuous_segment(begin_timestamp, true, program_date_time);
-                //println!(" store.continuous_segment({}, true, {});", begin_timestamp, program_date_time);
+                println!(" store.continuous_segment({}, true, {});", begin_timestamp, program_date_time);
             } else if self.partial_begin_timestamp.is_some() {
                 let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
     
                 if (self.part_duration * mpegts::HZ as f32) <= part_diff as f32 {
-                    let partial_begin_timestamp = begin_timestamp - max(0, (part_diff as f32 - self.part_duration as f32 * mpegts::HZ as f32) as u32);
+                    let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
+                    let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
+
                     self.partial_begin_timestamp = Some(partial_begin_timestamp);
                     store.continuous_partial(partial_begin_timestamp, false);
-                    //println!("store.continuous_partial {}, false);", partial_begin_timestamp);
+                    println!("store.continuous_partial {});", partial_begin_timestamp);
                 }
             }
         }

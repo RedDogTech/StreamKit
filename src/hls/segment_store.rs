@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Write;
 use bytes::{Bytes, BytesMut, BufMut};
 use anyhow::Result;
@@ -44,11 +44,10 @@ impl PartialSegment {
         self.key_frame
     }
 
-    fn extinf(&self) -> Option<Duration> {
+    fn duration(&self) -> Option<f32> {
         if let Some(end_pts) = self.end_pts {
-            return Some(Duration::seconds_f32((end_pts as f32 - self.begin_pts as f32 + mpegts::PCR_CYCLE as f32) %  mpegts::PCR_CYCLE as f32) /  mpegts::HZ);
+            return Some((end_pts as f32 - self.begin_pts as f32 + (mpegts::PCR_CYCLE as f32) % mpegts::PCR_CYCLE as f32 / mpegts::HZ as f32) / 100000.0);
         }
-
         None
     }
 }
@@ -96,11 +95,10 @@ impl Segment {
         }
     }
 
-    fn extinf(&self) -> Option<Duration> {
+    fn duration(&self) -> Option<f32> {
         if let Some(end_pts) = self.end_pts {
-            return Some(Duration::seconds_f32((end_pts as f32 - self.begin_pts as f32 + mpegts::PCR_CYCLE as f32) %  mpegts::PCR_CYCLE as f32) /  mpegts::HZ);
+            return Some((end_pts as f32 - self.begin_pts as f32 + (mpegts::PCR_CYCLE as f32) % mpegts::PCR_CYCLE as f32 / mpegts::HZ as f32) / 100000.0);
         }
-
         None
     }
 
@@ -124,7 +122,6 @@ pub struct SegmentStore {
     media_sequence: usize,
     published: bool,
     windows_size: Option<usize>,
-    target_duration: Duration,
     part_duration: f32,
     low_latency_mode: bool,
     version: usize,
@@ -140,7 +137,6 @@ impl SegmentStore {
             media_sequence: 0,
             published: false,
             windows_size: Some(opt.window_size),
-            target_duration: Duration::SECOND,
             part_duration: opt.part_duration,
             low_latency_mode: false,
             version: 9,
@@ -210,17 +206,15 @@ impl SegmentStore {
         }
     }
 
-    fn estimated_tartget_duration(&self) -> Duration {
-        let mut target_duration = self.target_duration;
-
+    fn target_duration(&self) -> f32 {
+        let mut max: f32 = 1.0;
         for segment in self.segments.iter() {
-            if let Some(duration) = segment.extinf() {
-                target_duration = max(target_duration, duration)
-            }
+            max = max.max(segment.duration().unwrap_or(0.0));
         }
+    
+        return max.ceil();
+      }
 
-        target_duration
-    }
 
     fn in_range(&self, msn: usize) -> bool {
         (self.media_sequence <= msn) && (msn < self.media_sequence + self.segments.len())
@@ -270,7 +264,7 @@ impl SegmentStore {
 
         writeln!(manifest, "#EXTM3U")?;
         writeln!(manifest, "#EXT-X-VERSION:{}", self.version)?;
-        writeln!(manifest, "#EXT-X-TARGETDURATION:{:.06}", self.estimated_tartget_duration().as_seconds_f32())?;
+        writeln!(manifest, "#EXT-X-TARGETDURATION:{:.06}", self.target_duration())?;
 
         if self.low_latency_mode {
             writeln!(manifest, "#EXT-X-PART-INF:PART-TARGET={:.06}", self.part_duration)?;
@@ -280,8 +274,6 @@ impl SegmentStore {
         if !self.is_live {
             writeln!(manifest, "#EXT-X-PLAYLIST-TYPE:VOD")?;
             writeln!(manifest, "#EXT-X-ALLOW-CACHE:YES")?;
-        } else {
-            writeln!(manifest, "#EXT-X-PLAYLIST-TYPE:EVENT")?;
         }
 
         if self.init_segment_ready().is_some() {
@@ -303,8 +295,8 @@ impl SegmentStore {
                         if partial.is_independant() {
                             write!(independant, ",INDEPENDENT=YES")?;
                         }
-                        if let Some(duration) = partial.extinf() {
-                            writeln!(manifest, "#EXT-X-PART:DURATION={:.06},URI=\"part.m4s?msn={}&part={}\"{}", duration.as_seconds_f32(), msn, index, independant)?;
+                        if let Some(duration) = partial.duration() {
+                            writeln!(manifest, "#EXT-X-PART:DURATION={:.06},URI=\"part.m4s?msn={}&part={}\"{}", duration, msn, index, independant)?;
                         } else {
                             writeln!(manifest, "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"part.m4s?msn={}&part={}\"{}",  msn, index, independant)?;
                         }
@@ -312,8 +304,8 @@ impl SegmentStore {
                 }
             }
 
-            if let Some(duration) = segment.extinf() {
-                writeln!(manifest, "#EXTINF:{:.06}", duration.as_seconds_f32())?;
+            if let Some(duration) = segment.duration() {
+                writeln!(manifest, "#EXTINF:{:.06}", duration)?;
                 writeln!(manifest, "segment.m4s?msn={}", msn)?;
             }
         }

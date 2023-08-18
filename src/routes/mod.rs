@@ -11,8 +11,48 @@ pub fn create_app(store: SegmentStores) -> Router {
         .with_state(store)
 }
 
-async fn playlist(Path(stream_name): Path<String>, State(state): State<SegmentStores>) -> impl IntoResponse {
+// Overide due the specific naming
+// convention from the HLS spec
+#[allow(non_snake_case)]
+#[derive(Deserialize)]
+struct LlhlsQueryParams {
+    _HLS_msn: Option<usize>,
+    _HLS_part: Option<usize>,
+}
+
+async fn playlist(Path(stream_name): Path<String>, Query(params): Query<LlhlsQueryParams>, State(state): State<SegmentStores>) -> impl IntoResponse {
     
+    let sequence_number = params._HLS_msn;
+    let partial_number = params._HLS_part;
+
+    if sequence_number.is_none() && partial_number.is_some() {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from("missing segment seq number"))
+            .unwrap()
+    }
+
+    if let Some(sequence_number) = sequence_number {
+        let partial_number = partial_number.unwrap_or_default();
+
+        let mut count = 0;
+        loop {
+            if count > 100 {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from("missing segment seq number"))
+                    .unwrap()
+            }
+
+
+            
+
+            count += 1;
+            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        }
+        
+    }
+
     let lock = state.read().await;
     match lock.get(&stream_name) {
         Some(store) => {
@@ -42,7 +82,6 @@ async fn segment(Path(stream_name): Path<String>, Query(segment): Query<Segment>
     let lock = state.read().await;
 
     if let Some(store) = lock.get(&stream_name) {
-        println!("msn request: {}", segment.msn);
         if let Some(segment_bytes) = store.segment(segment.msn) {
             return Response::builder()
                     .header("Content-Type", "video/mp4")
