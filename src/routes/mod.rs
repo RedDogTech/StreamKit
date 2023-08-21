@@ -1,5 +1,6 @@
-use axum::{Router, routing::get, response::{IntoResponse, Html}, extract::{Path, State, Query}, http::{header, Response, StatusCode}, body::Body};
+use axum::{Router, routing::get, extract::{Path, State, Query}, http::{header, Response, StatusCode, Method}, body::Body, response::IntoResponse};
 use serde::Deserialize;
+use tower_http::cors::CorsLayer;
 use crate::hls::SegmentStores;
 
 pub fn create_app(store: SegmentStores) -> Router {
@@ -8,6 +9,7 @@ pub fn create_app(store: SegmentStores) -> Router {
         .route("/:id/segment.m4s", get(segment))
         .route("/:id/part.m4s", get(part))
         .route("/:id/init.mp4", get(init_segment))
+        .layer(CorsLayer::new().allow_methods([Method::GET]))
         .with_state(store)
 }
 
@@ -82,22 +84,35 @@ struct Segment {
 }
 
 async fn segment(Path(stream_name): Path<String>, Query(query): Query<Segment>, State(state): State<SegmentStores>) -> impl IntoResponse {
-    let lock = state.read().await;
+    // let mut count = 0;
+    // loop {
+    //     if count > 100 {
+    //         return Response::builder()
+    //             .status(StatusCode::BAD_REQUEST)
+    //             .body(Body::from("missing segment seq number"))
+    //             .unwrap()
+    //     }
 
-    if let Some(store) = lock.get(&stream_name) {
-        if let Some(segment_bytes) = store.segment(query.msn) {
-            return Response::builder()
-                    .header("Content-Type", "video/mp4")
-                    .header("Cache-Control", "max-age=31536000")
-                    .body(Body::from(segment_bytes))
-                    .unwrap()
+        let lock = state.read().await;
+        if let Some(store) = lock.get(&stream_name) {
+            if let Some(segment_bytes) = store.segment(query.msn) {
+                return Response::builder()
+                        .header("Content-Type", "video/mp4")
+                        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .header("Cache-Control", "max-age=31536000")
+                        .body(Body::from(segment_bytes))
+                        .unwrap()
+            }
         }
-    }
 
-    Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(Body::empty())
-        .unwrap()
+        return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from("missing segment seq number"))
+                .unwrap()
+
+    //     count += 1;
+    //     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    // }
 }
 
 #[derive(Deserialize)]

@@ -97,12 +97,12 @@ pub struct Opt {
     pub config_file_path: Option<PathBuf>,
 
     //Sets the size of the partials that make up the fmp4 segments
-    #[clap(long, env = STREAMKIT_PART_SIZE, default_value_t = 0.15)]
+    #[clap(long, env = STREAMKIT_PART_SIZE, default_value_t = 10)]
     #[serde(default)]
     pub part_duration: f32,
 
     //Sets the windows size (rewind window) for the HLS stream.
-    #[clap(long, env = STREAMKIT_WINDOW_SIZE, default_value_t = 10)]
+    #[clap(long, env = STREAMKIT_WINDOW_SIZE, default_value_t = 15)]
     #[serde(default)]
     pub window_size: usize,
 }

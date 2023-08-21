@@ -148,7 +148,7 @@ impl SegmentStore {
             published: false,
             windows_size: Some(opt.window_size),
             part_duration: opt.part_duration,
-            low_latency_mode: true,
+            low_latency_mode: false,
             version: 9,
             is_live: true,
             manifest_body: None,
