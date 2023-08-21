@@ -97,7 +97,7 @@ pub struct Opt {
     pub config_file_path: Option<PathBuf>,
 
     //Sets the size of the partials that make up the fmp4 segments
-    #[clap(long, env = STREAMKIT_PART_SIZE, default_value_t = 10)]
+    #[clap(long, env = STREAMKIT_PART_SIZE, default_value_t = 10.0)]
     #[serde(default)]
     pub part_duration: f32,
 
