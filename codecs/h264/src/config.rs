@@ -294,11 +294,6 @@ impl DecoderConfigurationRecord {
         self.width = presentation_width as u32;
         self.height = presentation_height as u32;
 
-        // println!("codec_width{}, codec_height{}", codec_width, codec_height);
-        // println!("presentation_width{}, presentation_height{}", presentation_width, presentation_height);
-
-        // println!("=========================");
-
         Ok(())
     }
 }

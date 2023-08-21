@@ -62,8 +62,6 @@ impl PesHeader {
             }
         }
 
-        //println!("size:{} flag:{} stream:{:?}, pts:{:?}, dts:{:?}", optional_remaining, pts_dts_flags, stream_id, pts, dts);
-
         header_size += optional_remaining;
 
         Ok(PesHeader {

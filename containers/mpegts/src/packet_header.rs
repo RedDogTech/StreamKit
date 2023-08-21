@@ -89,7 +89,7 @@ impl PacketHeader {
         })
     }
 
-
+    #[inline(always)]
     fn read_pcr(reader: &mut Cursor<Bytes>) -> Result<u64> {
         let mut pcr :u64 = 0;
         let mut val :u64 = reader.read_u8()? as u64;

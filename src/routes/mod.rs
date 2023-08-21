@@ -20,10 +20,10 @@ struct LlhlsQueryParams {
     _HLS_part: Option<usize>,
 }
 
-async fn playlist(Path(stream_name): Path<String>, Query(params): Query<LlhlsQueryParams>, State(state): State<SegmentStores>) -> impl IntoResponse {
+async fn playlist(Path(stream_name): Path<String>, Query(query): Query<LlhlsQueryParams>, State(state): State<SegmentStores>) -> impl IntoResponse {
     
-    let sequence_number = params._HLS_msn;
-    let partial_number = params._HLS_part;
+    let sequence_number = query._HLS_msn;
+    let partial_number = query._HLS_part;
 
     if sequence_number.is_none() && partial_number.is_some() {
         return Response::builder()
@@ -44,13 +44,16 @@ async fn playlist(Path(stream_name): Path<String>, Query(params): Query<LlhlsQue
                     .unwrap()
             }
 
-
-            
+            let lock = state.read().await;
+            if let Some(store) = lock.get(&stream_name) {
+                if store.partial(sequence_number, partial_number).is_some() {
+                    break;
+                }
+            }
 
             count += 1;
             tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
         }
-        
     }
 
     let lock = state.read().await;
@@ -78,11 +81,11 @@ struct Segment {
     msn: usize,
 }
 
-async fn segment(Path(stream_name): Path<String>, Query(segment): Query<Segment>, State(state): State<SegmentStores>) -> impl IntoResponse {
+async fn segment(Path(stream_name): Path<String>, Query(query): Query<Segment>, State(state): State<SegmentStores>) -> impl IntoResponse {
     let lock = state.read().await;
 
     if let Some(store) = lock.get(&stream_name) {
-        if let Some(segment_bytes) = store.segment(segment.msn) {
+        if let Some(segment_bytes) = store.segment(query.msn) {
             return Response::builder()
                     .header("Content-Type", "video/mp4")
                     .header("Cache-Control", "max-age=31536000")
@@ -97,8 +100,30 @@ async fn segment(Path(stream_name): Path<String>, Query(segment): Query<Segment>
         .unwrap()
 }
 
-async fn part(Path(stream_name): Path<String>, State(state): State<SegmentStores>) -> impl IntoResponse {
-    Html("Hello, World!")
+#[derive(Deserialize)]
+struct Partial {
+    msn: usize,
+    part: usize,
+}
+
+
+async fn part(Path(stream_name): Path<String>, Query(query): Query<Partial>, State(state): State<SegmentStores>) -> impl IntoResponse {
+    let lock = state.read().await;
+
+    if let Some(store) = lock.get(&stream_name) {
+        if let Some(segment_bytes) = store.partial(query.msn, query.part) {
+            return Response::builder()
+                    .header("Content-Type", "video/mp4")
+                    .header("Cache-Control", "max-age=31536000")
+                    .body(Body::from(segment_bytes))
+                    .unwrap()
+        }
+    }
+
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::empty())
+        .unwrap()
 }
 
 async fn init_segment(Path(stream_name): Path<String>, State(state): State<SegmentStores>) -> impl IntoResponse {

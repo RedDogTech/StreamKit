@@ -25,8 +25,8 @@ pub struct Mp4fWriter {
 
     h264_coder: H264Coder,
 
-    next_h264: Option<(bool, Vec<Vec<u8>>, i64, i64, OffsetDateTime)>,
-    current_h264: Option<(bool, Vec<Vec<u8>>, i64, i64, OffsetDateTime)>,
+    next_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
+    current_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
 }
 
 impl Mp4fWriter {
@@ -102,7 +102,6 @@ impl Mp4fWriter {
     }
 
     async fn handle_video(&mut self, data: Bytes, pts: u64, dts: Option<u64>) ->Result<()> {
-
         if self.latest_pcr_value.is_none() {
             return Ok(());
         }
@@ -111,21 +110,17 @@ impl Mp4fWriter {
             return Ok(());
         }
 
-        let dts: i64 = match dts {
-            Some(dts) => dts as i64,
-            None => pts as i64,
+        let dts: u64 = match dts {
+            Some(dts) => dts,
+            None => pts,
         };
 
         let latest_pcr_value = self.latest_pcr_value.unwrap();
         let latest_pcr_datetime = self.latest_pcr_datetime.unwrap();
-        let cts: i64 = (pts as i64 - dts + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64;
-        let timestamp: i64 = ((dts as i64 - latest_pcr_value + mpegts::PCR_CYCLE as i64) % mpegts::PCR_CYCLE as i64) + self.latest_pcr_timestamp_90khz as i64;
+        let cts: u64 = (pts as u64 - dts + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE as u64;
+        let timestamp: u64 = ((dts as u64 - latest_pcr_value as u64 + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE as u64) + self.latest_pcr_timestamp_90khz as u64;
         let program_date_time = latest_pcr_datetime + Duration::seconds_f64(((dts as f64 - latest_pcr_value as f64 + mpegts::PCR_CYCLE as f64) % mpegts::PCR_CYCLE as f64) / mpegts::HZ as f64);
-        
-        // println!("===============================");
-        // println!("LATEST_PCR_VALUE: {}, LATEST_PCR_TIMESTAMP_90KHZ: {}", latest_pcr_value, self.latest_pcr_timestamp_90khz);
-        // println!("dts: {}, cts: {} timestamp: {}", dts, cts, timestamp);
-
+ 
         let mut samples:Vec<Vec<u8>> = Vec::new();
         let mut keyframe_in_samples = false;
 
@@ -155,9 +150,8 @@ impl Mp4fWriter {
             self.next_h264 = Some((keyframe_in_samples, samples, timestamp, cts, program_date_time));
         }
 
-
         let mut has_idr = false;
-        let mut begin_timestamp: Option<i64> = None;
+        let mut begin_timestamp: Option<u64> = None;
         let mut begin_program_date_time: Option<OffsetDateTime> = None;
         let mut writer = BytesWriter::default();
 
@@ -179,7 +173,7 @@ impl Mp4fWriter {
 
             let mut traf = Traf::new(
                 Tfhd::new(1, None, None, Some(duration as u32), None, None),
-                Some(Tfdt::new(timestamp as u64)),
+                Some(Tfdt::new(dts as u64)),
                 Some(Trun::new(vec![codec::h264::trun_sample(has_idr, cts as u32, duration as u32, &content)?], None)),
             );
 
@@ -224,7 +218,7 @@ impl Mp4fWriter {
 
         if begin_timestamp.is_none(){
             return Ok(())
-        } 
+        }
 
         self.proccess_segments(has_idr, begin_timestamp.unwrap() as u32, begin_program_date_time.unwrap()).await?;
 
@@ -234,6 +228,39 @@ impl Mp4fWriter {
             store.push(writer.dispose());
         }
 
+        Ok(())
+    }
+
+    #[inline]
+    async fn proccess_segments(&mut self, has_keyframe: bool, begin_timestamp: u32, program_date_time: OffsetDateTime) -> Result<()> {
+        let mut lock = self.stores.write().await;
+
+        if let Some(store) = lock.get_mut(&self.stream_name) {
+            if has_keyframe {
+                if self.partial_begin_timestamp.is_some() {
+                    let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
+    
+                    if ((self.part_duration * mpegts::HZ as f32).floor() as u32) < part_diff {
+                        let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
+                        let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
+                        self.partial_begin_timestamp = Some(partial_begin_timestamp);
+                        store.continuous_partial(partial_begin_timestamp, false)?;
+                    }
+                }
+                
+                self.partial_begin_timestamp = Some(begin_timestamp);
+                store.continuous_segment(begin_timestamp, true, program_date_time)?;
+            } else if self.partial_begin_timestamp.is_some() {
+                let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
+                if (self.part_duration * mpegts::HZ as f32).floor() as u32 <= part_diff {
+                    let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
+                    let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
+
+                    self.partial_begin_timestamp = Some(partial_begin_timestamp);
+                    store.continuous_partial(partial_begin_timestamp, false)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -274,42 +301,6 @@ impl Mp4fWriter {
             store.set_init_segment(writer.dispose())?;
         }
 
-        Ok(())
-    }
-
-    async fn proccess_segments(&mut self, has_keyframe: bool, begin_timestamp: u32, program_date_time: OffsetDateTime) -> Result<()> {
-        let mut lock = self.stores.write().await;
-
-        if let Some(store) = lock.get_mut(&self.stream_name) {
-            if has_keyframe {
-                if self.partial_begin_timestamp.is_some() {
-                    let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
-    
-                    if (self.part_duration * mpegts::HZ as f32) < part_diff as f32 {
-                        let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
-                        let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
-                        self.partial_begin_timestamp = Some(partial_begin_timestamp);
-                        store.continuous_partial(partial_begin_timestamp, false);
-                        println!(" store.continuous_partial({}, false);", partial_begin_timestamp);
-                    }
-                }
-                
-                self.partial_begin_timestamp = Some(begin_timestamp);
-                store.continuous_segment(begin_timestamp, true, program_date_time);
-                println!(" store.continuous_segment({}, true, {});", begin_timestamp, program_date_time);
-            } else if self.partial_begin_timestamp.is_some() {
-                let part_diff = begin_timestamp - self.partial_begin_timestamp.unwrap();
-    
-                if (self.part_duration * mpegts::HZ as f32) <= part_diff as f32 {
-                    let part_duration = (self.part_duration as f32 * mpegts::HZ as f32).floor() as u32;
-                    let partial_begin_timestamp = begin_timestamp - max(0, part_diff - part_duration);
-
-                    self.partial_begin_timestamp = Some(partial_begin_timestamp);
-                    store.continuous_partial(partial_begin_timestamp, false);
-                    println!("store.continuous_partial {});", partial_begin_timestamp);
-                }
-            }
-        }
         Ok(())
     }
 

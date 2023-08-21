@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::fmt::Write;
 use bytes::{Bytes, BytesMut, BufMut};
 use anyhow::Result;
-use time::{OffsetDateTime, Duration, format_description::well_known::Rfc3339};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::Opt;
 
@@ -44,9 +44,10 @@ impl PartialSegment {
         self.key_frame
     }
 
-    fn duration(&self) -> Option<f32> {
+    #[inline(always)]
+    fn duration(&self) -> Option<f64> {
         if let Some(end_pts) = self.end_pts {
-            return Some((end_pts as f32 - self.begin_pts as f32 + (mpegts::PCR_CYCLE as f32) % mpegts::PCR_CYCLE as f32 / mpegts::HZ as f32) / 100000.0);
+            return Some(((end_pts as u64 - self.begin_pts as u64 + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE ) as f64 / mpegts::HZ as f64);
         }
         None
     }
@@ -54,7 +55,7 @@ impl PartialSegment {
 
 #[derive(Debug)]
 struct Segment {
-    partials: VecDeque<PartialSegment>,
+    partials: Vec<PartialSegment>,
     begin_pts: u32,
     end_pts: Option<u32>,
     key_frame: bool,
@@ -65,8 +66,8 @@ struct Segment {
 
 impl Segment {
     fn new(begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime, test: usize) -> Self {
-        let mut partials = VecDeque::new();
-        partials.push_front(PartialSegment::new(begin_pts, key_frame));
+        let mut partials = Vec::new();
+        partials.push(PartialSegment::new(begin_pts, key_frame));
 
         Self {
             begin_pts,
@@ -80,7 +81,14 @@ impl Segment {
     }
 
     pub fn complete(&mut self, end_pts: u32) {
-        self.end_pts = Some(end_pts)
+        self.end_pts = Some(end_pts);
+        self.complete_partial(end_pts);
+    }
+
+    pub fn complete_partial(&mut self, end_pts: u32) {
+        if let Some(partial) = self.partials.last_mut(){
+            partial.complete(end_pts)
+        }
     }
 
     fn push(&mut self, data: Bytes) {
@@ -90,20 +98,21 @@ impl Segment {
 
         self.data.put(data.clone());
 
-        if let Some(partial) = self.partials.front_mut() {
+        if let Some(partial) = self.partials.last_mut() {
             partial.push(data);
         }
     }
 
-    fn duration(&self) -> Option<f32> {
+    #[inline(always)]
+    fn duration(&self) -> Option<f64> {
         if let Some(end_pts) = self.end_pts {
-            return Some((end_pts as f32 - self.begin_pts as f32 + (mpegts::PCR_CYCLE as f32) % mpegts::PCR_CYCLE as f32 / mpegts::HZ as f32) / 100000.0);
+            return Some(((end_pts as u64 - self.begin_pts as u64 + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE ) as f64 / mpegts::HZ as f64);
         }
         None
     }
 
     fn new_partial(&mut self, begin_pts: u32, key_frame: bool) {
-        self.partials.push_front(PartialSegment::new(begin_pts, key_frame));
+        self.partials.push(PartialSegment::new(begin_pts, key_frame));
     }
 
     fn payload(&self) -> Option<Bytes> {
@@ -126,6 +135,7 @@ pub struct SegmentStore {
     low_latency_mode: bool,
     version: usize,
     is_live: bool,
+    manifest_body: Option<String>,
     segments: VecDeque<Segment>,
     outdated: VecDeque<Segment>,
 }
@@ -138,9 +148,10 @@ impl SegmentStore {
             published: false,
             windows_size: Some(opt.window_size),
             part_duration: opt.part_duration,
-            low_latency_mode: false,
+            low_latency_mode: true,
             version: 9,
             is_live: true,
+            manifest_body: None,
             segments: VecDeque::new(),
             outdated: VecDeque::new()
         }
@@ -153,15 +164,16 @@ impl SegmentStore {
         None
     }
 
-    pub fn continuous_partial(&mut self, end_pts: u32, key_frame: bool) {
+    pub fn continuous_partial(&mut self, end_pts: u32, key_frame: bool) -> Result<()> {
         if let Some(last_segment) = self.segments.front_mut() {
-            //println!("pushing to {:?}", last_segment.test);
-            if let Some(partial) = last_segment.partials.front_mut() {
+            if let Some(partial) = last_segment.partials.last_mut() {
                 partial.complete(end_pts);
+                self.generate_manfiest()?;
             }
         }
 
         self.new_partial(end_pts, key_frame);
+        Ok(())
     }
 
     fn new_partial(&mut self, end_pts: u32, key_frame: bool) {
@@ -171,17 +183,14 @@ impl SegmentStore {
     }
 
     fn new_segment(&mut self, begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) {
-        //println!("new_segment:{} ", self.media_sequence);
         self.segments.push_front(Segment::new(begin_pts, key_frame, program_datetime, self.media_sequence));
 
         if let Some(window_size) = self.windows_size {
-            //println!("window_size:{} {}", window_size, self.segments.len());
             while window_size < self.segments.len() {
                 if let Some(last_segment) = self.segments.pop_back() {
                     self.outdated.push_back(last_segment);
                 }
 
-                //println!("=====new media_sequence {}", self.media_sequence);
                 self.media_sequence += 1;
             }
 
@@ -191,13 +200,15 @@ impl SegmentStore {
         }
     }
 
-    pub fn continuous_segment(&mut self, end_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) {
+    pub fn continuous_segment(&mut self, end_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) -> Result<()> {
         if let Some(segment) = self.segments.front_mut() {
-            segment.complete(end_pts);
             self.published = true;
+            segment.complete(end_pts);
+            self.generate_manfiest()?;
         }
 
         self.new_segment(end_pts, key_frame, program_datetime);
+        Ok(())
     }
 
     pub fn push(&mut self, data: Bytes) {
@@ -206,15 +217,15 @@ impl SegmentStore {
         }
     }
 
-    fn target_duration(&self) -> f32 {
-        let mut max: f32 = 1.0;
+    #[inline(always)]
+    fn target_duration(&self) -> f64 {
+        let mut max: f64 = 1.0;
         for segment in self.segments.iter() {
             max = max.max(segment.duration().unwrap_or(0.0));
         }
     
         return max.ceil();
-      }
-
+    }
 
     fn in_range(&self, msn: usize) -> bool {
         (self.media_sequence <= msn) && (msn < self.media_sequence + self.segments.len())
@@ -259,7 +270,15 @@ impl SegmentStore {
         }
     }
 
-    pub async fn get_manifest_text(&self) -> Result<String> {
+    pub async fn get_manifest_text(&self) -> Option<String> {
+        if self.published {
+            return self.manifest_body.clone();
+        }
+
+        None
+    }
+
+    pub fn generate_manfiest(&mut self) -> Result<()> {
         let mut manifest = String::new();
 
         writeln!(manifest, "#EXTM3U")?;
@@ -282,14 +301,14 @@ impl SegmentStore {
 
         writeln!(manifest, "#EXT-X-MEDIA-SEQUENCE:{}", self.media_sequence)?;
 
-        for (seq, segment) in self.segments.iter().rev().enumerate() {
+        for (seq, segment) in self.segments.iter().enumerate() {
             let msn = self.media_sequence + seq;
             writeln!(manifest, "")?; //Blank new line
             writeln!(manifest, "#EXT-X-PROGRAM-DATE-TIME:{}", segment.program_datetime.format(&Rfc3339)?)?;
             if self.low_latency_mode {
                 
-                for (index, partial) in segment.partials.iter().rev().enumerate() {
-                    if seq >= self.segments.len() - 4 {
+                if seq >= self.segments.len() - 4 {
+                    for (index, partial) in segment.partials.iter().enumerate() {   
                         let mut independant = String::new();
 
                         if partial.is_independant() {
@@ -309,7 +328,8 @@ impl SegmentStore {
                 writeln!(manifest, "segment.m4s?msn={}", msn)?;
             }
         }
-        Ok(manifest)
+        self.manifest_body = Some(manifest);
+        Ok(())
     }
 
     pub fn set_init_segment(&mut self, data: Bytes) -> Result<()> {
