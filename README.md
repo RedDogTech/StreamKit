@@ -4,7 +4,7 @@ Expierment Rust media sever.
 ### Dev Setup
 Please install the latest version of rust. (nightly not needed).
 
-To install all the deps from cargo run `cargo install`.
+To install all the deps from cargo run `cargo install` once cloned and cd'ed into.
 
 to pass arguments such as enabling debugging use the `--` such as:
 
