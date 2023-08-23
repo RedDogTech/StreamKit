@@ -56,6 +56,7 @@ impl PartialSegment {
 
 #[derive(Debug)]
 struct Segment {
+    pub num: usize,
     partials: Vec<PartialSegment>,
     begin_pts: u32,
     end_pts: Option<u32>,
@@ -66,11 +67,12 @@ struct Segment {
 }
 
 impl Segment {
-    fn new(begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) -> Self {
+    fn new(num: usize, begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) -> Self {
         let mut partials = Vec::new();
         partials.push(PartialSegment::new(begin_pts, key_frame));
 
         Self {
+            num,
             begin_pts,
             end_pts: None,
             key_frame,
@@ -173,7 +175,7 @@ impl SegmentStore {
             is_live: true,
             manifest_body: None,
             segments: VecDeque::new(),
-            outdated: VecDeque::new()
+            outdated: VecDeque::new(),
         }
     }
 
@@ -204,13 +206,13 @@ impl SegmentStore {
 
     fn new_segment(&mut self, begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) {
         println!("new segment {}", self.media_sequence);
-        self.segments.push_front(Segment::new(begin_pts, key_frame, program_datetime));
+        self.segments.push_front(Segment::new(self.media_sequence, begin_pts, key_frame, program_datetime));
+        self.media_sequence += 1;
 
         if let Some(window_size) = self.windows_size {
             while window_size < self.segments.len() {
                 if let Some(last_segment) = self.segments.pop_back() {
                     self.outdated.push_back(last_segment);
-                    self.media_sequence += 1;
                 }
             }
 
@@ -256,22 +258,14 @@ impl SegmentStore {
     }
 
     pub async fn segment(&mut self, msn: usize) -> Option<UnboundedReceiver<Option<Bytes>>> {
-        println!("segment request {} ({}), index({})", msn, self.media_sequence, (self.media_sequence - msn) as i64);
-        let msn = msn + 10;
 
-        if !self.in_range(msn) {
-            if !self.in_outdated(msn) {
-                return None;
-            } else {
-                let index = (self.media_sequence - msn) - 1;
-                return Some(self.outdated[index].response().await);
+        for segment in &mut self.segments {
+            if segment.num == msn {
+                return Some(segment.response().await);
             }
         }
-        println!("segment request {} ({})", msn, self.media_sequence);
-        let index = msn - self.media_sequence;
-        println!("segment request {}", index);
 
-        return Some(self.segments[index].response().await);
+        None
     }
 
     pub fn partial(&self, msn: usize, part: usize) -> Option<Bytes> {
