@@ -79,7 +79,12 @@ impl ReadFormat<Avc> for AnnexB {
                 match nal_unit.kind {
                     nal::UnitType::SequenceParameterSet => {
                         ctx.sps = vec![nal_unit];
-                        ctx.parse()?;
+                        
+                        if !ctx.sps_parsed {
+                            ctx.parse()?;
+                            ctx.sps_parsed = true;
+                        }
+                        
                     }
                     nal::UnitType::PictureParameterSet => {
                         ctx.pps = vec![nal_unit];
@@ -101,7 +106,10 @@ impl ReadFormat<Avc> for AnnexB {
                         match nal_unit.kind {
                             nal::UnitType::SequenceParameterSet => {
                                 ctx.sps = vec![nal_unit];
-                                ctx.parse()?;
+                                if !ctx.sps_parsed {
+                                    ctx.parse()?;
+                                    ctx.sps_parsed = true;
+                                }
                             }
                             nal::UnitType::PictureParameterSet => {
                                 ctx.pps = vec![nal_unit];
@@ -122,7 +130,10 @@ impl ReadFormat<Avc> for AnnexB {
                 match nal_unit.kind {
                     nal::UnitType::SequenceParameterSet => {
                         ctx.sps = vec![nal_unit];
-                        ctx.parse()?;
+                        if !ctx.sps_parsed {
+                            ctx.parse()?;
+                            ctx.sps_parsed = true;
+                        }
                     }
                     nal::UnitType::PictureParameterSet => {
                         ctx.pps = vec![nal_unit];

@@ -22,6 +22,7 @@ tokio = { version = "1", features = ["full", "tracing"] }
 prometheus = { version = "0.13.3", features = ["process"] }
 lazy_static = "1.4.0"
 bytes = "1"
+futures = "0"
 
 
 # Internal Packages
@@ -35,3 +36,6 @@ av1 = { path = "codecs/av1", version = "0.1.0" }
 h264 = { path = "codecs/h264", version = "0.1.0" }
 h265 = { path = "codecs/h265", version = "0.1.0" }
 common = { path = "core/common", version = "0.1.0" }
+
+[profile.release]
+codegen-units = 1

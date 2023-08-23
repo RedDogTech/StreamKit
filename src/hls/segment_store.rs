@@ -3,6 +3,7 @@ use std::fmt::Write;
 use bytes::{Bytes, BytesMut, BufMut};
 use anyhow::Result;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 
 use crate::Opt;
 
@@ -60,12 +61,12 @@ struct Segment {
     end_pts: Option<u32>,
     key_frame: bool,
     program_datetime: OffsetDateTime,
+    queues: Vec<UnboundedSender<Option<Bytes>>>,
     data: BytesMut,
-    test: usize,
 }
 
 impl Segment {
-    fn new(begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime, test: usize) -> Self {
+    fn new(begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) -> Self {
         let mut partials = Vec::new();
         partials.push(PartialSegment::new(begin_pts, key_frame));
 
@@ -75,14 +76,38 @@ impl Segment {
             key_frame,
             program_datetime,
             partials,
+            queues: Vec::new(),
             data: BytesMut::new(),
-            test,
         }
+    }
+
+    pub async fn response(&mut self) -> UnboundedReceiver<Option<Bytes>> {
+        let (sender, reciver) = mpsc::unbounded_channel::<Option<Bytes>>();
+
+        let buffer = self.data.clone().freeze();
+        sender.send(Some(buffer)).ok();
+
+        if self.is_complete() {
+            sender.send(None).ok();
+        } else {
+            self.queues.push(sender);
+        }
+
+        reciver
+    }
+
+    fn is_complete(&self) -> bool {
+        self.end_pts.is_some()
     }
 
     pub fn complete(&mut self, end_pts: u32) {
         self.end_pts = Some(end_pts);
         self.complete_partial(end_pts);
+
+        for q in &self.queues {
+            let _ = q.send(None);
+        }
+        self.queues.clear();
     }
 
     pub fn complete_partial(&mut self, end_pts: u32) {
@@ -99,7 +124,11 @@ impl Segment {
         self.data.put(data.clone());
 
         if let Some(partial) = self.partials.last_mut() {
-            partial.push(data);
+            partial.push(data.clone());
+        }
+
+        for q in &self.queues {
+            let _ = q.send(Some(data.clone()));
         }
     }
 
@@ -115,17 +144,8 @@ impl Segment {
         self.partials.push(PartialSegment::new(begin_pts, key_frame));
     }
 
-    fn payload(&self) -> Option<Bytes> {
-        if self.end_pts.is_some() {
-            return Some(self.data.clone().freeze());
-        }
-
-        None
-    }
-
 }
 
-#[derive(Default)]
 pub struct SegmentStore {
     init_segment: Bytes,
     media_sequence: usize,
@@ -183,15 +203,15 @@ impl SegmentStore {
     }
 
     fn new_segment(&mut self, begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) {
-        self.segments.push_front(Segment::new(begin_pts, key_frame, program_datetime, self.media_sequence));
+        println!("new segment {}", self.media_sequence);
+        self.segments.push_front(Segment::new(begin_pts, key_frame, program_datetime));
 
         if let Some(window_size) = self.windows_size {
             while window_size < self.segments.len() {
                 if let Some(last_segment) = self.segments.pop_back() {
                     self.outdated.push_back(last_segment);
+                    self.media_sequence += 1;
                 }
-
-                self.media_sequence += 1;
             }
 
             while window_size < self.outdated.len() {
@@ -235,17 +255,23 @@ impl SegmentStore {
         (self.media_sequence > msn) && (msn >= self.media_sequence - self.segments.len())
     }
 
-    pub fn segment(&self, msn: usize) -> Option<Bytes> {
+    pub async fn segment(&mut self, msn: usize) -> Option<UnboundedReceiver<Option<Bytes>>> {
+        println!("segment request {} ({}), index({})", msn, self.media_sequence, (self.media_sequence - msn) as i64);
+        let msn = msn + 10;
+
         if !self.in_range(msn) {
             if !self.in_outdated(msn) {
                 return None;
             } else {
                 let index = (self.media_sequence - msn) - 1;
-                return self.outdated[index].payload();
+                return Some(self.outdated[index].response().await);
             }
         }
+        println!("segment request {} ({})", msn, self.media_sequence);
         let index = msn - self.media_sequence;
-        return self.segments[index].payload();
+        println!("segment request {}", index);
+
+        return Some(self.segments[index].response().await);
     }
 
     pub fn partial(&self, msn: usize, part: usize) -> Option<Bytes> {
@@ -325,7 +351,7 @@ impl SegmentStore {
 
             if let Some(duration) = segment.duration() {
                 writeln!(manifest, "#EXTINF:{:.06}", duration)?;
-                writeln!(manifest, "segment.m4s?msn={}", msn)?;
+                writeln!(manifest, "segment.m4s?msn={}", msn as i64 - 15)?;
             }
         }
         self.manifest_body = Some(manifest);

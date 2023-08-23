@@ -118,7 +118,9 @@ impl Mp4fWriter {
         let latest_pcr_value = self.latest_pcr_value.unwrap();
         let latest_pcr_datetime = self.latest_pcr_datetime.unwrap();
         let cts: u64 = (pts as u64 - dts + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE as u64;
-        let timestamp: u64 = ((dts as u64 - latest_pcr_value as u64 + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE as u64) + self.latest_pcr_timestamp_90khz as u64;
+
+        let timestamp: u64 = ((dts as i64 - latest_pcr_value as i64 + mpegts::PCR_CYCLE as i64) as u64 % mpegts::PCR_CYCLE as u64) + self.latest_pcr_timestamp_90khz as u64;
+
         let program_date_time = latest_pcr_datetime + Duration::seconds_f64(((dts as f64 - latest_pcr_value as f64 + mpegts::PCR_CYCLE as f64) % mpegts::PCR_CYCLE as f64) / mpegts::HZ as f64);
  
         let mut samples:Vec<Vec<u8>> = Vec::new();
@@ -231,7 +233,6 @@ impl Mp4fWriter {
         Ok(())
     }
 
-    #[inline]
     async fn proccess_segments(&mut self, has_keyframe: bool, begin_timestamp: u32, program_date_time: OffsetDateTime) -> Result<()> {
         let mut lock = self.stores.write().await;
 

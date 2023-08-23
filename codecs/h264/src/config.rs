@@ -38,6 +38,7 @@ pub struct DecoderConfigurationRecord {
     pub color_config: Option<ColorConfig>,
     pub width: u32,
     pub height: u32,
+    pub sps_parsed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +73,7 @@ impl Default for DecoderConfigurationRecord {
             color_config: None,
             width: 0,
             height: 0,
+            sps_parsed: false,
         }
     }
 }
@@ -396,6 +398,7 @@ impl TryFrom<&[u8]> for DecoderConfigurationRecord {
             color_config: None,
             width: 0,
             height: 0,
+            sps_parsed: false,
         })
     }
 }

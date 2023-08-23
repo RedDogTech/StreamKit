@@ -1,6 +1,10 @@
+use std::convert::Infallible;
+
 use axum::{Router, routing::get, extract::{Path, State, Query}, http::{header, Response, StatusCode, Method}, body::Body, response::IntoResponse};
+use bytes::Bytes;
 use serde::Deserialize;
 use tower_http::cors::CorsLayer;
+use futures::stream;
 use crate::hls::SegmentStores;
 
 pub fn create_app(store: SegmentStores) -> Router {
@@ -80,39 +84,45 @@ async fn playlist(Path(stream_name): Path<String>, Query(query): Query<LlhlsQuer
 
 #[derive(Deserialize)]
 struct Segment {
-    msn: usize,
+    msn: Option<usize>,
 }
 
 async fn segment(Path(stream_name): Path<String>, Query(query): Query<Segment>, State(state): State<SegmentStores>) -> impl IntoResponse {
-    // let mut count = 0;
-    // loop {
-    //     if count > 100 {
-    //         return Response::builder()
-    //             .status(StatusCode::BAD_REQUEST)
-    //             .body(Body::from("missing segment seq number"))
-    //             .unwrap()
-    //     }
+    
+    if let Some(msn) = query.msn {
+        let mut lock = state.write().await;
+        if let Some(store) = lock.get_mut(&stream_name) {
+            let queue = store.segment(msn).await;
 
-        let lock = state.read().await;
-        if let Some(store) = lock.get(&stream_name) {
-            if let Some(segment_bytes) = store.segment(query.msn) {
+            if let Some(mut queue) = queue {
+                let mut test: Vec<Result<Bytes, Infallible>> = vec![];
+
+                while let Some(stream) = queue.recv().await {
+                    match stream{
+                        Some(data) => test.push(Ok(data)),
+                        None => break,
+                    }
+                }
+
                 return Response::builder()
-                        .header("Content-Type", "video/mp4")
-                        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-                        .header("Cache-Control", "max-age=31536000")
-                        .body(Body::from(segment_bytes))
-                        .unwrap()
+                    .header(header::TRANSFER_ENCODING, "chunked")
+                    .header("Content-Type", "video/mp4")
+                    .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                    .header("Cache-Control", "max-age=31536000")
+                    .body(Body::wrap_stream(stream::iter(test)))
+                    .unwrap()
             }
         }
+    }
 
-        return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from("missing segment seq number"))
-                .unwrap()
+    return Response::builder()
+        .status(StatusCode::BAD_REQUEST)
+        .header("Content-Type", "video/mp4")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header("Cache-Control", "max-age=0")
+        .body(Body::from("missing segment seq number"))
+        .unwrap()
 
-    //     count += 1;
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-    // }
 }
 
 #[derive(Deserialize)]

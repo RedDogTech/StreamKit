@@ -1232,6 +1232,7 @@ dependencies = [
  "common",
  "env_logger",
  "exp_golomb",
+ "futures",
  "h264",
  "h265",
  "lazy_static",
