@@ -205,7 +205,6 @@ impl SegmentStore {
     }
 
     fn new_segment(&mut self, begin_pts: u32, key_frame: bool, program_datetime: OffsetDateTime) {
-        println!("new segment {}", self.media_sequence);
         self.segments.push_front(Segment::new(self.media_sequence, begin_pts, key_frame, program_datetime));
         self.media_sequence += 1;
 
