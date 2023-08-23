@@ -14,6 +14,11 @@ for a list of option and arguments that can be set and what the options mean.
 
 `cargo run -- --help`
 
+#### libSRT
+LibSrt is neededs to be installed and in the path brew can be used to fetch the srt libs on MacOS. 
+
+`brew install srt`
+
 ### HLS output
 The server will send out a fmp4 HLS stream. This can be accessed via.
 The streamid is set by the incoming srt stream.
