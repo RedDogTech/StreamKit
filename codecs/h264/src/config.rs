@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use byteorder::{WriteBytesExt, BigEndian, ReadBytesExt};
 use bytes::{Bytes, BytesMut, BufMut};
-use bytesio::{bit_writer::BitWriter, bytes_reader::BytesCursor, bit_reader::BitReader};
+use bytesio::{bit_writer::BitWriter, bit_reader::BitReader};
 use exp_golomb::{read_exp_golomb, read_signed_exp_golomb};
 
 use {
@@ -161,6 +161,40 @@ impl DecoderConfigurationRecord {
         let chroma_format_idc = 1;
 
         read_exp_golomb(&mut bit_reader)?; // seq_parameter_set_id
+
+        match self.profile_indication {
+            100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 => {
+                let chroma_format_idc = read_exp_golomb(&mut bit_reader)?;
+                if chroma_format_idc == 3 {
+                    bit_reader.seek_bits(1)?;
+                }
+                let _bit_depth_luma_minus8 = read_exp_golomb(&mut bit_reader)?;
+                let _bit_depth_chroma_minus8 = read_exp_golomb(&mut bit_reader)?;
+                bit_reader.seek_bits(1)?; // qpprime_y_zero_transform_bypass_flag
+
+                if bit_reader.read_bit()? {
+                    // seq_scaling_matrix_present_flag
+                    // We need to read the scaling matrices here, but we don't need them
+                    // for decoding, so we just skip them.
+                    let count = if chroma_format_idc != 3 { 8 } else { 12 };
+                    for i in 0..count {
+                        if bit_reader.read_bit()? {
+                            let size = if i < 6 { 16 } else { 64 };
+                            let mut next_scale = 8;
+                            for _ in 0..size {
+                                let delta_scale = read_signed_exp_golomb(&mut bit_reader)?;
+                                next_scale = (next_scale + delta_scale + 256) % 256;
+                                if next_scale == 0 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        } 
+
         read_exp_golomb(&mut bit_reader)?; // log2_max_frame_num_minus4
 
         let pic_order_cnt_type = read_exp_golomb(&mut bit_reader)?;
@@ -177,7 +211,7 @@ impl DecoderConfigurationRecord {
             }
         }
 
-        let ref_frames = read_exp_golomb(&mut bit_reader)?;
+        let _ref_frames = read_exp_golomb(&mut bit_reader)?;
         bit_reader.seek_bits(1)?;
 
         let pic_width_in_mbs_minus1 = read_exp_golomb(&mut bit_reader)?;
@@ -206,8 +240,8 @@ impl DecoderConfigurationRecord {
 
         let mut sar_width = 1;
         let mut sar_height = 1;
-        let mut fps = 0;
-        let mut fps_fixed =true;
+        let mut _fps = 0;
+        let mut _fps_fixed =true;
         let mut fps_num = 0;
         let mut fps_den = 0;
         let vui_parameters_present_flag = bit_reader.read_bit()?;
@@ -255,11 +289,11 @@ impl DecoderConfigurationRecord {
             if bit_reader.read_bit()? {
                 let num_units_in_tick = bit_reader.read_u32::<BigEndian>()?;
                 let time_scale = bit_reader.read_u32::<BigEndian>()?;
-                fps_fixed = bit_reader.read_bit()?;
+                _fps_fixed = bit_reader.read_bit()?;
 
                 fps_num = time_scale;
                 fps_den = num_units_in_tick * 2;
-                fps = fps_num / fps_den;
+                _fps = fps_num / fps_den;
             }
         }
 
@@ -284,17 +318,16 @@ impl DecoderConfigurationRecord {
             crop_unit_x = sub_wc;
             crop_unit_y = sub_hc * (2 - frame_mbs_only_flag as u64)
         }
-        
-        let mut codec_width = (pic_width_in_mbs_minus1 + 1) * 16;
-        let mut codec_height = (2 - frame_mbs_only_flag as u64) * ((pic_height_in_map_units_minus1 + 1) * 16);
-        codec_width -= (frame_crop_left_offset + frame_crop_right_offset) * crop_unit_x;
-        codec_height -= (frame_crop_top_offset + frame_crop_bottom_offset) * crop_unit_y;
-    
-        let presentation_width = (codec_width * sar_width + (sar_height - 1)); // sar_height
-        let presentation_height = codec_height;
 
-        self.width = presentation_width as u32;
-        self.height = presentation_height as u32;
+        self.width  = ((pic_width_in_mbs_minus1 + 1) * 16
+            - frame_crop_left_offset * 2
+            - frame_crop_right_offset * 2) as u32;
+
+        self.height = (((2 - frame_mbs_only_flag as u64)
+            * (pic_height_in_map_units_minus1 + 1)
+            * 16)
+            - (frame_crop_top_offset * 2)
+            - (frame_crop_bottom_offset * 2)) as u32;
 
         Ok(())
     }
@@ -354,38 +387,6 @@ impl TryFrom<&[u8]> for DecoderConfigurationRecord {
 
             pps.push(nal::Unit::try_from(&*tmp)?);
         }
-
-        // It turns out that sometimes the extended config is not present, even though the avc_profile_indication
-        // is not 66, 77 or 88. We need to be lenient here on decoding.
-        let extended_config = match profile_indication {
-            66 | 77 | 88 => None,
-            _ => {
-                if buf.has_remaining() {
-                    let chroma_format = buf.read_u8()? & 0b00000011; // 2 bits (6 bits reserved)
-                    let bit_depth_luma_minus8 = buf.read_u8()? & 0b00000111; // 3 bits (5 bits reserved)
-                    let bit_depth_chroma_minus8 = buf.read_u8()? & 0b00000111; // 3 bits (5 bits reserved)
-                    let number_of_sequence_parameter_set_ext = buf.read_u8()?; // 8 bits
-
-                    let mut sequence_parameter_set_ext =
-                        Vec::with_capacity(number_of_sequence_parameter_set_ext as usize);
-                    for _ in 0..number_of_sequence_parameter_set_ext {
-                        let sps_ext_length = buf.read_u16::<BigEndian>()?;
-                        let sps_ext_data = buf.read_slice(sps_ext_length as usize)?;
-                        sequence_parameter_set_ext.push(sps_ext_data);
-                    }
-
-                    Some(AvccExtendedConfig {
-                        chroma_format,
-                        bit_depth_luma_minus8,
-                        bit_depth_chroma_minus8,
-                        //sequence_parameter_set_ext,
-                    })
-                } else {
-                    // No extended config present even though avc_profile_indication is not 66, 77 or 88
-                    None
-                }
-            }
-        };
 
         Ok(Self {
             version,
