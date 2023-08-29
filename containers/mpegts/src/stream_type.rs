@@ -13,6 +13,34 @@ pub enum StreamType {
     Unknown(u8),
 }
 
+impl StreamType {
+    pub fn is_video(&self) -> bool {
+        match self {
+            StreamType::PrivateData => false, //TODO: Good Question
+            StreamType::AAC => false,
+            StreamType::H264 => true,
+            StreamType::H265 => true,
+            StreamType::AV1 => true,
+            StreamType::OPUS => false,
+            StreamType::SCTE35 => false,
+            StreamType::Unknown(_) => false,
+        }
+    }
+
+    pub fn is_audio(&self) -> bool {
+        match self {
+            StreamType::PrivateData => false, //TODO: Good Question
+            StreamType::AAC => true,
+            StreamType::H264 => false,
+            StreamType::H265 => false,
+            StreamType::AV1 => false,
+            StreamType::OPUS => true,
+            StreamType::SCTE35 => false,
+            StreamType::Unknown(_) => false,
+        }
+    }
+}
+
 impl From<u8> for StreamType {
     fn from(d: u8) -> Self {
         match d {
