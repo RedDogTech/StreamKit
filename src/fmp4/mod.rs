@@ -4,7 +4,8 @@ use anyhow::Result;
 use bytes::{Bytes, BytesMut, BufMut};
 use bytesio::bytes_writer::BytesWriter;
 use h264::{H264Coder, nal};
-use mp4::{types::{trun::Trun, moof::Moof, mfhd::Mfhd, traf::Traf, tfhd::Tfhd, tfdt::Tfdt, mdat::Mdat, mvex::Mvex, trex::Trex, stsz::Stsz, vmhd::Vmhd, stco::Stco, stsc::Stsc, stts::Stts, stsd::Stsd, stbl::Stbl, minf::Minf, hdlr::{Hdlr, HandlerType}, mdia::Mdia, tkhd::Tkhd, trak::Trak, mvhd::Mvhd, moov::Moov, ftyp::{FourCC, Ftyp}, mdhd::Mdhd}, BoxType, DynBox};
+use aac::{AacCoder, aac_codec::RawAacStreamCodec};
+use mp4::{types::{trun::Trun, moof::Moof, mfhd::Mfhd, traf::Traf, tfhd::Tfhd, tfdt::Tfdt, mdat::Mdat, mvex::Mvex, trex::Trex, stsz::Stsz, vmhd::Vmhd, stco::Stco, stsc::Stsc, stts::Stts, stsd::Stsd, stbl::Stbl, minf::Minf, hdlr::{Hdlr, HandlerType}, mdia::Mdia, tkhd::Tkhd, trak::Trak, mvhd::Mvhd, moov::Moov, ftyp::{FourCC, Ftyp}, mdhd::Mdhd, smhd::Smhd}, BoxType, DynBox};
 use time::{OffsetDateTime, Duration};
 use common::FormatReader;
 
@@ -24,6 +25,10 @@ pub struct Mp4fWriter {
     initialization_segment_dispatched: bool,
 
     h264_coder: H264Coder,
+    aac_coder: AacCoder,
+    aac_config: Option<RawAacStreamCodec>,
+    aac_writer: BytesWriter,
+
 
     next_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
     current_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
@@ -45,6 +50,9 @@ impl Mp4fWriter {
             initialization_segment_dispatched: false,
 
             h264_coder: H264Coder::new(),
+            aac_coder: AacCoder::new(),
+            aac_config: None,
+            aac_writer: BytesWriter::default(),
             next_h264: None,
             current_h264: None,
         }
@@ -97,7 +105,57 @@ impl Mp4fWriter {
         Ok(())
     }
 
-    async fn handle_audio(&mut self, _data: Bytes, _pts: u64) ->Result<()> {
+    async fn handle_audio(&mut self, data: Bytes, pts: u64) ->Result<()> {
+        if self.latest_pcr_value.is_none() {
+            return Ok(());
+        }
+
+        let latest_pcr_value = self.latest_pcr_value.unwrap();
+        let timestamp: u64 = ((pts as i64 - latest_pcr_value as i64 + mpegts::PCR_CYCLE as i64) as u64 % mpegts::PCR_CYCLE as u64) + self.latest_pcr_timestamp_90khz as u64;
+
+        match self.aac_coder.read_format(aac::AudioDataTransportStream, &data)? {
+            Some(aac) => {
+                for acc_smaple in aac {
+                    if let Some(codec) = acc_smaple.codec {
+                        if self.aac_config.is_none() {
+                            self.aac_config = Some(codec.clone());
+                        }
+                    
+
+                        let content = Bytes::from(acc_smaple.data);
+                        let duration = 1024 * mpegts::HZ / codec.sampling_frequency_index.to_freq();
+
+
+                        let traf = Traf::new(
+                            Tfhd::new(2, None, None, Some(duration), None, None),
+                            Some(Tfdt::new(timestamp as u64)),
+                            Some(Trun::new(vec![codec::aac::trun_sample(&content)?], None)),
+                        );
+
+                        let mut moof = Moof::new(Mfhd::new(0), vec![traf]);
+                        let moof_size = moof.size();
+            
+                        let traf = moof
+                            .traf
+                            .get_mut(0)
+                            .expect("we just created the moof with a traf");
+            
+                        let trun = traf
+                            .trun
+                            .as_mut()
+                            .expect("we just created the video traf with a trun");
+            
+                        // So the video offset will be the size of the moof + 8 bytes for the mdat header.
+                        trun.data_offset = Some(moof_size as i32 + 8);
+                        moof.mux(&mut self.aac_writer)?;
+
+                        Mdat::new(vec![content]).mux(&mut self.aac_writer)?;
+                    }
+                }
+            },
+            None => todo!(),
+        };
+
         Ok(())
     }
 
@@ -203,16 +261,22 @@ impl Mp4fWriter {
 
         (self.next_h264, self.current_h264) = (self.current_h264.clone(), self.next_h264.clone());
 
-        if has_idr && !self.initialization_segment_dispatched {
+        if has_idr && self.aac_config.is_some() && !self.initialization_segment_dispatched {
             if let Some(idr) = &self.h264_coder.dcr {
                 let video_config = idr.clone();
 
                 let width = video_config.width;
                 let height = video_config.height;
 
-                let entry = codec::h264::stsd_entry(video_config)?;
+                let video_entry = codec::h264::stsd_entry(video_config)?;
+
+                let audio_config = self.aac_config.clone().unwrap();
+
+                let audio_entry = codec::aac::stsd_entry(audio_config)?;
+
+                log::trace!("mp4 init segment written");
     
-                self.write_init_sgment(entry, width, height).await?;
+                self.write_init_sgment(video_entry, audio_entry, width, height).await?;
             }
 
             self.initialization_segment_dispatched = true;
@@ -227,7 +291,9 @@ impl Mp4fWriter {
         let mut lock = self.stores.write().await;
 
         if let Some(store) = lock.get_mut(&self.stream_name) {
+            let aac_bytes = self.aac_writer.extract_current_bytes();
             store.push(writer.dispose());
+            store.push(aac_bytes.freeze());
         }
 
         Ok(())
@@ -265,9 +331,9 @@ impl Mp4fWriter {
         Ok(())
     }
 
-    async fn write_init_sgment(&mut self, stsd_entry :DynBox, width: u32, height: u32 ) -> Result<()> {
+    async fn write_init_sgment(&mut self, video_entry :DynBox, audio_entry :DynBox, width: u32, height: u32 ) -> Result<()> {
         let mut writer: BytesWriter = BytesWriter::default();
-        let compatiable_brands = vec![FourCC::Isom, FourCC::Avc1];
+        let compatiable_brands = vec![FourCC::Isom, FourCC::Avc1, FourCC::Mp41];
 
         Ftyp::new(FourCC::Isom, 1, compatiable_brands.clone()).mux(&mut writer)?;
         Moov::new(
@@ -281,7 +347,7 @@ impl Mp4fWriter {
                         Hdlr::new(HandlerType::Vide, "VideoHandler".to_string()),
                         Minf::new(
                             Stbl::new(
-                                Stsd::new(vec![stsd_entry]),
+                                Stsd::new(vec![video_entry]),
                                 Stts::new(vec![]),
                                 Stsc::new(vec![]),
                                 Stco::new(vec![]),
@@ -292,8 +358,27 @@ impl Mp4fWriter {
                         ),
                     ),
                 ),
+                Trak::new(
+                    Tkhd::new(0, 0, 2, 0, None),
+                    None,
+                    Mdia::new(
+                        Mdhd::new(0, 0, mpegts::HZ as u32, 0),
+                        Hdlr::new(HandlerType::Soun, "SoundHandler".to_string()),
+                        Minf::new(
+                            Stbl::new(
+                                Stsd::new(vec![audio_entry]),
+                                Stts::new(vec![]),
+                                Stsc::new(vec![]),
+                                Stco::new(vec![]),
+                                Some(Stsz::new(0, vec![])),
+                            ),
+                            None,
+                            Some(Smhd::new()),
+                        ),
+                    ),
+                ),
             ],
-            Some(Mvex::new(vec![Trex::new(1)], None)),
+            Some(Mvex::new(vec![Trex::new(1), Trex::new(2)], None)),
         )
         .mux(&mut writer)?;
 

@@ -99,8 +99,8 @@ impl TryFrom<u16> for AudioObjectType {
     }
 }
 
-impl Into<u16> for AudioObjectType {
-    fn into(self) -> u16 {
+impl Into<u8> for AudioObjectType {
+    fn into(self) -> u8 {
         match self {
             Self::AacMain => 1,
             Self::AacLowComplexity => 2,

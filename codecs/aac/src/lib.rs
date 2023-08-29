@@ -14,14 +14,14 @@ use {
 #[derive(Debug)]
 pub struct Aac {
     pub data: Vec<u8>,
-    pub rcodec: Option<RawAacStreamCodec>,
+    pub codec: Option<RawAacStreamCodec>,
 }
 
 impl From<&[u8]> for Aac {
     fn from(val: &[u8]) -> Self {
         Self {
             data: Vec::from(val),
-            rcodec: None,
+            codec: None,
         }
     }
 }

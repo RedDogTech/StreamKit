@@ -4,8 +4,10 @@ use std::io::Cursor;
 use super::aac_codec::{AacProfile, RawAacStreamCodec};
 use super::config::AudioSpecificConfiguration;
 use common::{ReadFormat, WriteFormat};
+use crate::aac_codec::SampleFrequencyIndex;
+use crate::config::AudioObjectType;
 use crate::{error::AacError, Aac};
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, BytesMut};
 // Bits | Description
 // ---- | -----------
 // 12   | Sync word, constant 0xFFF
@@ -142,7 +144,7 @@ impl ReadFormat<Vec<Aac>> for AudioDataTransportStream {
                 .to_owned();
 
             buf.advance(raw_data_size as usize);
-            let aac_object = profile.into();
+            let aac_object: AudioObjectType = profile.into();
 
             let sound_format = 10;
             let sound_rate = match sampling_frequency_index {
@@ -155,10 +157,16 @@ impl ReadFormat<Vec<Aac>> for AudioDataTransportStream {
             let sound_size = 1u8;
 
             let aac_packet_type = 0u8;
-            let rcodec = Some(RawAacStreamCodec {
+
+            let mut audio_specific_config = BytesMut::with_capacity(2);
+
+            audio_specific_config.put_u8((aac_object as u8) << 3 | sampling_frequency_index >> 1);
+            audio_specific_config.put_u8(sampling_frequency_index << 7 | channel_configuration << 3);
+
+            let codec = Some(RawAacStreamCodec {
                 protection_absent,
                 aac_object,
-                sampling_frequency_index,
+                sampling_frequency_index: SampleFrequencyIndex::from(sampling_frequency_index),
                 channel_configuration,
                 frame_length,
                 sound_format,
@@ -166,9 +174,10 @@ impl ReadFormat<Vec<Aac>> for AudioDataTransportStream {
                 sound_type,
                 sound_size,
                 aac_packet_type,
+                audio_specific_config: audio_specific_config.freeze(),
             });
 
-            aacs.push(Aac { data, rcodec });
+            aacs.push(Aac { data, codec });
         }
 
         Ok(aacs)
