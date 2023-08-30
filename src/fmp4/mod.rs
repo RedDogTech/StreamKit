@@ -3,7 +3,8 @@ use crate::{session::{ManagerHandle, trigger_channel, ChannelMessage, Watcher, M
 use anyhow::Result;
 use bytes::{Bytes, BytesMut, BufMut};
 use bytesio::bytes_writer::BytesWriter;
-use h264::{H264Coder, nal};
+use h264::H264Coder;
+use h265::H265Coder;
 use aac::{AacCoder, aac_codec::RawAacStreamCodec};
 use mp4::{types::{trun::Trun, moof::Moof, mfhd::Mfhd, traf::Traf, tfhd::Tfhd, tfdt::Tfdt, mdat::Mdat, mvex::Mvex, trex::Trex, stsz::Stsz, vmhd::Vmhd, stco::Stco, stsc::Stsc, stts::Stts, stsd::Stsd, stbl::Stbl, minf::Minf, hdlr::{Hdlr, HandlerType}, mdia::Mdia, tkhd::Tkhd, trak::Trak, mvhd::Mvhd, moov::Moov, ftyp::{FourCC, Ftyp}, mdhd::Mdhd, smhd::Smhd}, BoxType, DynBox};
 use time::{OffsetDateTime, Duration};
@@ -25,10 +26,10 @@ pub struct Mp4fWriter {
     initialization_segment_dispatched: bool,
 
     h264_coder: H264Coder,
+    h265_coder: H265Coder,
     aac_coder: AacCoder,
     aac_config: Option<RawAacStreamCodec>,
     aac_writer: BytesWriter,
-
 
     next_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
     current_h264: Option<(bool, Vec<Vec<u8>>, u64, u64, OffsetDateTime)>,
@@ -50,6 +51,7 @@ impl Mp4fWriter {
             initialization_segment_dispatched: false,
 
             h264_coder: H264Coder::new(),
+            h265_coder: H265Coder::new(),
             aac_coder: AacCoder::new(),
             aac_config: None,
             aac_writer: BytesWriter::default(),
@@ -67,10 +69,10 @@ impl Mp4fWriter {
                 Message::Packet(packet) => {
                         match packet.codec {
                             Codec::H264 => {
-                                self.handle_video(packet.data, packet.pts, packet.dts).await?;
+                                self.handle_h264_video(packet.data, packet.pts, packet.dts).await?;
                             },
                             Codec::H265 => {
-                                
+                                self.handle_h265_video(packet.data, packet.pts, packet.dts).await?;
                             },
                             Codec::AAC => {
                                 self.handle_audio(packet.data, packet.pts).await?;
@@ -159,7 +161,146 @@ impl Mp4fWriter {
         Ok(())
     }
 
-    async fn handle_video(&mut self, data: Bytes, pts: u64, dts: Option<u64>) ->Result<()> {
+    async fn handle_h265_video(&mut self, data: Bytes, pts: u64, dts: Option<u64>) -> Result<()> {
+        if self.latest_pcr_value.is_none() {
+            return Ok(());
+        }
+
+        if self.latest_pcr_datetime.is_none() {
+            return Ok(());
+        }
+
+        let dts: u64 = match dts {
+            Some(dts) => dts,
+            None => pts,
+        };
+
+        let latest_pcr_value = self.latest_pcr_value.unwrap();
+        let latest_pcr_datetime = self.latest_pcr_datetime.unwrap();
+        let cts: u64 = (pts as u64 - dts + mpegts::PCR_CYCLE as u64) % mpegts::PCR_CYCLE as u64;
+
+        let timestamp: u64 = ((dts as i64 - latest_pcr_value as i64 + mpegts::PCR_CYCLE as i64) as u64 % mpegts::PCR_CYCLE as u64) + self.latest_pcr_timestamp_90khz as u64;
+
+        let program_date_time = latest_pcr_datetime + Duration::seconds_f64(((dts as f64 - latest_pcr_value as f64 + mpegts::PCR_CYCLE as f64) % mpegts::PCR_CYCLE as f64) / mpegts::HZ as f64);
+ 
+        let mut samples:Vec<Vec<u8>> = Vec::new();
+        let mut keyframe_in_samples = false;
+
+        match self.h265_coder.read_format(h265::annexb::AnnexB, &data)? {
+            Some(avc) => {
+                let nalus: Vec<h265::nal::Unit> = avc.into();
+                for nalu in nalus {
+                    use h265::nal::NaluType::*;
+                    match &nalu.kind {
+                        NaluTypeSliceIdr => {
+                            keyframe_in_samples = true;
+                            samples.push(nalu.into());
+                        },
+                        NaluTypeSliceTrailR => {
+                            samples.push(nalu.into());
+                        },
+                        _ => continue,
+                    }
+                }
+            },
+            None => {},
+        };
+
+        if samples.len() == 0 {
+            self.next_h264 = None;
+        } else {
+            self.next_h264 = Some((keyframe_in_samples, samples, timestamp, cts, program_date_time));
+        }
+
+        let mut has_idr = false;
+        let mut begin_timestamp: Option<u64> = None;
+        let mut begin_program_date_time: Option<OffsetDateTime> = None;
+        let mut writer = BytesWriter::default();
+
+        if let Some((has_key_frame, samples, dts, cts, pdt)) = self.current_h264.clone() {
+            has_idr = has_key_frame;
+            begin_timestamp = Some(dts);
+            begin_program_date_time = Some(pdt);
+            let duration = timestamp - dts;
+
+            //re-package to ebsp
+            let mut content = BytesMut::new();
+
+            for sample in samples {
+                content.put_u32(sample.len() as u32);
+                content.extend(sample);
+            }
+            
+            let content = content.freeze();
+
+            let mut traf = Traf::new(
+                Tfhd::new(1, None, None, Some(duration as u32), None, None),
+                Some(Tfdt::new(dts as u64)),
+                Some(Trun::new(vec![codec::h265::trun_sample(has_idr, cts as u32, duration as u32, &content)?], None)),
+            );
+
+            traf.optimize();
+            
+            let mut moof = Moof::new(Mfhd::new(0), vec![traf]);
+            let moof_size = moof.size();
+
+            let traf = moof
+                .traf
+                .get_mut(0)
+                .expect("we just created the moof with a traf");
+
+            let trun = traf
+                .trun
+                .as_mut()
+                .expect("we just created the video traf with a trun");
+
+            // So the video offset will be the size of the moof + 8 bytes for the mdat header.
+            trun.data_offset = Some(moof_size as i32 + 8);
+            moof.mux(&mut writer)?;
+
+            Mdat::new(vec![content]).mux(&mut writer)?;
+        }
+
+        (self.next_h264, self.current_h264) = (self.current_h264.clone(), self.next_h264.clone());
+
+        if has_idr && self.aac_config.is_some() && !self.initialization_segment_dispatched {
+            if let Some(idr) = &self.h265_coder.dcr {
+                let video_config = idr.clone();
+
+                let width = 1280;
+                let height = 720;
+
+                let video_entry = codec::h265::stsd_entry(video_config)?;
+                let audio_config = self.aac_config.clone().unwrap();
+
+                let audio_entry = codec::aac::stsd_entry(audio_config)?;
+
+                log::trace!("mp4 init segment written");
+    
+                self.write_init_sgment(video_entry, audio_entry, width, height).await?;
+            }
+
+            self.initialization_segment_dispatched = true;
+        }
+
+        if begin_timestamp.is_none(){
+            return Ok(())
+        }
+
+        self.proccess_segments(has_idr, begin_timestamp.unwrap() as u32, begin_program_date_time.unwrap()).await?;
+
+        let mut lock = self.stores.write().await;
+
+        if let Some(store) = lock.get_mut(&self.stream_name) {
+            let aac_bytes = self.aac_writer.extract_current_bytes();
+            store.push(writer.dispose());
+            store.push(aac_bytes.freeze());
+        }
+
+        Ok(())
+    }
+
+    async fn handle_h264_video(&mut self, data: Bytes, pts: u64, dts: Option<u64>) -> Result<()> {
         if self.latest_pcr_value.is_none() {
             return Ok(());
         }
@@ -186,9 +327,9 @@ impl Mp4fWriter {
 
         match self.h264_coder.read_format(h264::AnnexB, &data)? {
             Some(avc) => {
-                let nalus: Vec<nal::Unit> = avc.into();
+                let nalus: Vec<h264::nal::Unit> = avc.into();
                 for nalu in nalus {
-                    use nal::UnitType::*;
+                    use h264::nal::UnitType::*;
                     match &nalu.kind {
                         IdrPicture => {
                             keyframe_in_samples = true;

@@ -148,9 +148,7 @@ impl DecoderConfigurationRecord {
     pub fn parse(&mut self) -> Result<(), AvcError> {
 
         let sps = self.sps.first().unwrap().payload();
-
         let buffer = DecoderConfigurationRecord::ebsp_to_rbsp(sps);
-
         let mut bit_reader = BitReader::from(buffer);
 
         self.profile_indication = bit_reader.read_u8()?;

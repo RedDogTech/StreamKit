@@ -137,12 +137,14 @@ impl Demuxer {
                                 if packet.buffer.len() != 0 {
                                     let packet_clone = packet.clone();
 
+                                    let stream_type = self.pmt.clone().unwrap().streams[&header.pid].clone();
+
                                     match packet.stream_id {
                                         StreamId::Audio(_) => {
-                                            self.emit(DemuxerEvent::Audio(packet_clone.buffer.freeze(), packet_clone.pts));
+                                            self.emit(DemuxerEvent::Audio(stream_type, packet_clone.buffer.freeze(), packet_clone.pts));
                                         }
                                         StreamId::Video(_) => {
-                                            self.emit(DemuxerEvent::Video(packet_clone.buffer.freeze(), packet_clone.pts, packet_clone.dts));
+                                            self.emit(DemuxerEvent::Video(stream_type, packet_clone.buffer.freeze(), packet_clone.pts, packet_clone.dts));
                                         },
                                         _ => (),
                                     }

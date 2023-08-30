@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::Result;
-use mpegts::{demuxer::Demuxer, DemuxerEvent};
+use mpegts::{demuxer::Demuxer, DemuxerEvent, stream_type::StreamType};
 use srt_rs::stream::SrtStream;
 use tokio::{time::timeout, sync::oneshot};
 use crate::session::Message;
@@ -78,20 +78,32 @@ impl Connection{
                 log::info!("Stream Info: {:?}", &streams);
             },
 
-            DemuxerEvent::Video(data, pts, dts) => {
+            DemuxerEvent::Video(stream_type, data, pts, dts) => {
                 if let State::Publishing(session) = &mut self.state {
 
-                    let packet = Packet {
-                        codec: Codec::H264,
-                        data,
-                        pts: pts.unwrap(),
-                        dts,
-                    };
+                    if stream_type == StreamType::H264 {
+                        let packet = Packet {
+                            codec: Codec::H264,
+                            data,
+                            pts: pts.unwrap(),
+                            dts,
+                        };
+
+                        session.send(Message::Packet(packet))?;
+                    } else if stream_type == StreamType::H265 {
+                        let packet = Packet {
+                            codec: Codec::H265,
+                            data,
+                            pts: pts.unwrap(),
+                            dts,
+                        };
+
+                        session.send(Message::Packet(packet))?;
+                    }
                     
-                    session.send(Message::Packet(packet))?;
                 }
             },
-            DemuxerEvent::Audio(data, pts) => {
+            DemuxerEvent::Audio(stream_type, data, pts) => {
                 if let State::Publishing(session) = &mut self.state {
 
                     let packet = Packet {

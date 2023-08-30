@@ -1,7 +1,7 @@
 /// ETSI EN 300 468 V1.15.1 (2016-03)
 /// ISO/IEC 13818-1
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamType {
     PrivateData, // PES packets containing private data
     AAC,

@@ -18,7 +18,7 @@ pub const PCR_CYCLE: u64 = 8_589_934_592; // 2 ** 33
 #[derive(Clone, Debug)]
 pub enum DemuxerEvent {
     StreamDetails(HashMap<Pid, StreamType>),
-    Video(Bytes, Option<u64>, Option<u64>),
-    Audio(Bytes, Option<u64>),
+    Video(StreamType, Bytes, Option<u64>, Option<u64>),
+    Audio(StreamType, Bytes, Option<u64>),
     ClockRef(u64),
 }

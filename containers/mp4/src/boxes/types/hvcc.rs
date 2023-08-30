@@ -1,7 +1,7 @@
 use std::io;
 
 use bytes::Bytes;
-use h265::HEVCDecoderConfigurationRecord;
+use h265::config::HEVCDecoderConfigurationRecord;
 
 use crate::boxes::{header::BoxHeader, traits::BoxType};
 
@@ -34,7 +34,7 @@ impl BoxType for HvcC {
     }
 
     fn primitive_size(&self) -> u64 {
-        self.hevc_config.size()
+        self.hevc_config.size() + 12
     }
 
     fn primitive_mux<T: io::Write>(&self, writer: &mut T) -> io::Result<()> {

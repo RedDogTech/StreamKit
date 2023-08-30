@@ -557,7 +557,10 @@ dependencies = [
  "byteorder",
  "bytes",
  "bytesio",
+ "common",
  "exp_golomb",
+ "log",
+ "thiserror",
 ]
 
 [[package]]
